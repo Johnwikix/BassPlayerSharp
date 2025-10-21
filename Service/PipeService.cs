@@ -14,7 +14,7 @@ namespace BassPlayerSharp.Service
 
         public PipeService()
         {
-            this.playBackService = new PlayBackService();
+            this.playBackService = new PlayBackService(this);
         }
         public void Start()
         {
@@ -104,7 +104,7 @@ namespace BassPlayerSharp.Service
             Console.WriteLine($"Executing command: {request.Command} with data: {request.Data}");
             try
             {
-                switch (request.Command?.ToLower())
+                switch (request.Command)
                 {
                     case "Play":
                         playBackService.PlayMusic(request.Data);
@@ -122,13 +122,13 @@ namespace BassPlayerSharp.Service
                             Message = "Play button pressed.",
                             Result = "Playback_Started"
                         };
-                    case "SetPlayMode":
-                        playBackService.PlayMode = request.Data;
+                    case "SetMusicUrl":
+                        playBackService.MusicUrl = request.Data;
                         return new ResponseMessage
                         {
                             Type = 1,
-                            Message = $"PlayMode Set to {request.Data}",
-                            Result = "PlayMode Set"
+                            Message = $"Music URL set to: {request.Data}",
+                            Result = "MusicUrl_Set"
                         };
                     case "Volume":
                         playBackService.SetVolume(int.Parse(request.Data));
@@ -137,31 +137,7 @@ namespace BassPlayerSharp.Service
                             Type = 1,
                             Message = "Playback paused.",
                             Result = "Playback_Paused"
-                        };
-                    case "OutputMode":
-                        playBackService.OutputMode = request.Data;
-                        return new ResponseMessage
-                        {
-                            Type = 1,
-                            Message = "OutputMode changed",
-                            Result = request.Data
-                        };
-                    case "BassOutputDeviceId":
-                        playBackService.BassOutputDeviceId = int.Parse(request.Data);
-                        return new ResponseMessage
-                        {
-                            Type = 1,
-                            Message = "BassOutputDeviceId changed",
-                            Result = request.Data
-                        };
-                    case "BassASIODeviceId":
-                        playBackService.BassASIODeviceId = int.Parse(request.Data);
-                        return new ResponseMessage
-                        {
-                            Type = 1,
-                            Message = "ASIOOutputDeviceId changed",
-                            Result = request.Data
-                        };
+                        };                  
                     case "GetProgress":
                         var progress = playBackService.GetCurrentPosition();
                         return new ResponseMessage
@@ -194,6 +170,14 @@ namespace BassPlayerSharp.Service
                             Message = "Volume changed.",
                             Result = "Volume_Changed"
                         };
+                    case "UpdateSettings":
+                        playBackService.UpdateSettings(request.Data);
+                        return new ResponseMessage
+                        {
+                            Type = 1,
+                            Message = "Settings updated.",
+                            Result = "Settings_Updated"
+                        };
                     default:
                         return new ResponseMessage
                         {
@@ -214,31 +198,4 @@ namespace BassPlayerSharp.Service
             }
         }
     }
-    //public class PlayerBackService
-    //{
-    //    public void Start()
-    //    {
-    //        // 创建命名管道服务器
-    //        Console.WriteLine("PlayerBackService started and waiting for commands...");
-    //        var server = new NamedPipeServerStream("BassPlayerPipe", PipeDirection.In, 1);
-    //        server.WaitForConnection(); // 等待 WinUI 进程连接
-    //        Console.WriteLine("Client connected to PlayerBackService.");
-    //        using (var reader = new StreamReader(server))
-    //        {
-    //            string command;      
-    //            Console.WriteLine("Listening for commands...");
-    //            while ((command = reader.ReadLine()) != null)
-    //            {
-    //                // 解析命令并执行播放操作
-    //                ExecuteCommand(command);
-    //            }
-    //        }           
-    //    }
-
-    //    private void ExecuteCommand(string command)
-    //    {
-    //        // 在这里实现具体的播放逻辑
-    //        Console.WriteLine($"Received command: {command}");
-    //    }
-    //}
 }

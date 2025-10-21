@@ -1,4 +1,5 @@
 ﻿using BassPlayerSharp.Manager;
+using BassPlayerSharp.Model;
 using ManagedBass;
 using ManagedBass.Asio;
 using ManagedBass.Dsd;
@@ -13,6 +14,7 @@ namespace BassPlayerSharp.Service
 {
     public class PlayBackService
     {
+        private readonly PipeService _pipeService;
         public int _currentStream;
         private readonly SyncProcedure _syncEndCallback;
         private readonly SyncProcedure _syncFailCallback;
@@ -71,8 +73,9 @@ namespace BassPlayerSharp.Service
             [16000f] = "16kHz"
         };
 
-        public PlayBackService()
+        public PlayBackService(PipeService pipeService)
         {
+            _pipeService = pipeService;
             BassManager.Initialize();
             _syncEndCallback = OnPlayBackEnded;
             _syncFailCallback = OnPlaybackFailed;
@@ -417,6 +420,9 @@ namespace BassPlayerSharp.Service
                 else
                 {
                     //播放当前回调
+                    if (!string.IsNullOrWhiteSpace(MusicUrl)) {
+                        PlayMusic(MusicUrl);
+                    }
                     //if (MusicBrowseViewModel.CurrentPlayingMusic is not null)
                     //{
                     //    MusicBrowseViewModel.PlayMusic(MusicBrowseViewModel.CurrentPlayingMusic);
@@ -480,6 +486,7 @@ namespace BassPlayerSharp.Service
                 {
                     SetEqualizer();
                 }
+                IsPlaying = true;
                 //播放回调
                 //MusicBrowseViewModel.StartProgressTimer();
                 //App.MainWindow.DispatcherQueue.TryEnqueue(() =>
@@ -516,6 +523,22 @@ namespace BassPlayerSharp.Service
                     var targetBytes = Bass.ChannelSeconds2Bytes(_currentStream, timeSpan.TotalSeconds);
                     Bass.ChannelSetPosition(_currentStream, targetBytes);
                 }
+            }
+        }
+
+        public void UpdateSettings(string settings) {
+            var ipcSetting = System.Text.Json.JsonSerializer.Deserialize(settings,IpcSettingJsonContext.Default.IpcSetting);
+            if (ipcSetting is not null)
+            {
+                PlayMode = ipcSetting.PlayMode;
+                OutputMode = ipcSetting.OutputMode;
+                BassOutputDeviceId = ipcSetting.BassOutputDeviceId;
+                BassASIODeviceId = ipcSetting.BassASIODeviceId;
+                Latency = ipcSetting.Latency;
+                IsDopEnabled = ipcSetting.IsDopEnabled;
+                dsdGain = ipcSetting.dsdGain;
+                dsdPcmFreq = ipcSetting.dsdPcmFreq;
+                IsEqualizerEnabled = ipcSetting.IsEqualizerEnabled;
             }
         }
 
