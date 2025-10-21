@@ -7,10 +7,15 @@ using System.Text.Json;
 
 namespace BassPlayerSharp.Service
 {
-    public class PlayerBackService
+    public class PipeService
     {
         private const string PipeName = "BassPlayerPipe";
+        private readonly PlayBackService playBackService;
 
+        public PipeService()
+        {
+            this.playBackService = new PlayBackService();
+        }
         public void Start()
         {
             Console.WriteLine("PlayerBackService started.");
@@ -57,7 +62,7 @@ namespace BassPlayerSharp.Service
 
                     if (request == null)
                     {
-                        response = new ResponseMessage { Success = false, Message = "Invalid request format." };
+                        response = new ResponseMessage { Type = 0, Message = "Invalid request format." };
                     }
                     else
                     {
@@ -69,13 +74,13 @@ namespace BassPlayerSharp.Service
                 {
                     // JSON 解析错误
                     Console.WriteLine($"JSON deserialization error: {jEx.Message}");
-                    response = new ResponseMessage { Success = false, Message = $"JSON deserialization failed: {jEx.Message}" };
+                    response = new ResponseMessage { Type = 0, Message = $"JSON deserialization failed: {jEx.Message}" };
                 }
                 catch (Exception ex)
                 {
                     // 其他处理错误
                     Console.WriteLine($"Command processing error: {ex.Message}");
-                    response = new ResponseMessage { Success = false, Message = $"Server error: {ex.Message}" };
+                    response = new ResponseMessage { Type = 0, Message = $"Server error: {ex.Message}" };
                 }
 
                 // 3. 序列化响应消息并发送给客户端
@@ -97,35 +102,102 @@ namespace BassPlayerSharp.Service
         private ResponseMessage ExecuteCommand(RequestMessage request)
         {
             Console.WriteLine($"Executing command: {request.Command} with data: {request.Data}");
-
-            // 根据 request.Command 执行具体逻辑
             try
             {
                 switch (request.Command?.ToLower())
                 {
-                    case "play":
-                        // 实际播放逻辑
-                        // ...
+                    case "Play":
+                        playBackService.PlayMusic(request.Data);
                         return new ResponseMessage
                         {
-                            Success = true,
+                            Type = 1,
                             Message = $"Started playing: {request.Data}",
                             Result = "Playback_Started"
                         };
-                    case "pause":
-                        // 实际暂停逻辑
-                        // ...
+                    case "PlayButton":
+                        playBackService.PlayButton();
                         return new ResponseMessage
                         {
-                            Success = true,
+                            Type = 1,
+                            Message = "Play button pressed.",
+                            Result = "Playback_Started"
+                        };
+                    case "SetPlayMode":
+                        playBackService.PlayMode = request.Data;
+                        return new ResponseMessage
+                        {
+                            Type = 1,
+                            Message = $"PlayMode Set to {request.Data}",
+                            Result = "PlayMode Set"
+                        };
+                    case "Volume":
+                        playBackService.SetVolume(int.Parse(request.Data));
+                        return new ResponseMessage
+                        {
+                            Type = 1,
                             Message = "Playback paused.",
                             Result = "Playback_Paused"
                         };
-                    // 添加更多命令处理...
+                    case "OutputMode":
+                        playBackService.OutputMode = request.Data;
+                        return new ResponseMessage
+                        {
+                            Type = 1,
+                            Message = "OutputMode changed",
+                            Result = request.Data
+                        };
+                    case "BassOutputDeviceId":
+                        playBackService.BassOutputDeviceId = int.Parse(request.Data);
+                        return new ResponseMessage
+                        {
+                            Type = 1,
+                            Message = "BassOutputDeviceId changed",
+                            Result = request.Data
+                        };
+                    case "BassASIODeviceId":
+                        playBackService.BassASIODeviceId = int.Parse(request.Data);
+                        return new ResponseMessage
+                        {
+                            Type = 1,
+                            Message = "ASIOOutputDeviceId changed",
+                            Result = request.Data
+                        };
+                    case "GetProgress":
+                        var progress = playBackService.GetCurrentPosition();
+                        return new ResponseMessage
+                        {
+                            Type = 10,
+                            Message = "Current progress retrieved.",
+                            Result = progress.ToString()
+                        };
+                    case "GetDuration":
+                        var duration = playBackService.GetTotalPosition();
+                        return new ResponseMessage
+                        {
+                            Type = 10,
+                            Message = "Track duration retrieved.",
+                            Result = duration.ToString()
+                        };
+                    case "ChangePosition":
+                        playBackService.ChangeWaveChannelTime(TimeSpan.FromSeconds(int.Parse(request.Data)));
+                        return new ResponseMessage
+                        {
+                            Type = 1,
+                            Message = "Playback position changed.",
+                            Result = "Position_Changed"
+                        };
+                    case "ChangeVolume":
+                        playBackService.SetVolume(int.Parse(request.Data));
+                        return new ResponseMessage
+                        {
+                            Type = 1,
+                            Message = "Volume changed.",
+                            Result = "Volume_Changed"
+                        };
                     default:
                         return new ResponseMessage
                         {
-                            Success = false,
+                            Type = 0,
                             Message = $"Unknown command: {request.Command}",
                             Result = "Error_UnknownCommand"
                         };
@@ -135,7 +207,7 @@ namespace BassPlayerSharp.Service
             {
                 return new ResponseMessage
                 {
-                    Success = false,
+                    Type = 0,
                     Message = $"Error during command execution: {ex.Message}",
                     Result = "Error_Execution"
                 };

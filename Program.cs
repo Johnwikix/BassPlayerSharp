@@ -2,10 +2,10 @@
 
 public class Program
 {
-    private static PlayerBackService PlayerBackService { get; set; } = new PlayerBackService();
+    private static PipeService pipeService { get; set; } = new PipeService();
     public static void Main()
     {
-        Console.WriteLine("PlayerBackService started");
-        PlayerBackService.Start();
+        Console.WriteLine("PipeService started");
+        pipeService.Start();
     }
 }

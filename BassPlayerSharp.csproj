@@ -9,16 +9,17 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
-  <ItemGroup Condition="'$(Platform)' == 'x86'">
-		<None Include="Libraries\x86\**\*">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-			<Link>%(Filename)%(Extension)</Link>
-		</None>
-  </ItemGroup>
-  <ItemGroup Condition="'$(Platform)' == 'x64'">
+  <ItemGroup>
 		<None Include="Libraries\x64\**\*">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<Link>%(Filename)%(Extension)</Link>
 		</None>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="ManagedBass" Version="4.0.2" />
+    <PackageReference Include="ManagedBass.Asio" Version="4.0.2" />
+    <PackageReference Include="ManagedBass.Dsd" Version="4.0.2" />
+    <PackageReference Include="ManagedBass.Fx" Version="4.0.2" />
+    <PackageReference Include="ManagedBass.Wasapi" Version="4.0.2" />
   </ItemGroup>
 </Project>
