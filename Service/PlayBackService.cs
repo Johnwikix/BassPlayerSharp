@@ -14,7 +14,7 @@ namespace BassPlayerSharp.Service
 {
     public class PlayBackService
     {
-        private readonly PipeService _pipeService;
+        private readonly TcpService _tcpService;
         public int _currentStream;
         private readonly SyncProcedure _syncEndCallback;
         private readonly SyncProcedure _syncFailCallback;
@@ -25,7 +25,6 @@ namespace BassPlayerSharp.Service
         public bool isSettingsChangeStop = false;
         public float volume = 0.5f;
         public bool isInitializing = true;
-        private readonly StringBuilder _timeStringBuilder = new StringBuilder(16);
         private readonly Lock _streamLock = new();
         private readonly Lock _waveChannelLock = new();
         private readonly int[] _bandIndices = new int[10];
@@ -73,9 +72,9 @@ namespace BassPlayerSharp.Service
             [16000f] = "16kHz"
         };
 
-        public PlayBackService(PipeService pipeService)
+        public PlayBackService(TcpService tcpService)
         {
-            _pipeService = pipeService;
+            _tcpService = tcpService;
             BassManager.Initialize();
             _syncEndCallback = OnPlayBackEnded;
             _syncFailCallback = OnPlaybackFailed;
@@ -90,8 +89,8 @@ namespace BassPlayerSharp.Service
 
         private void OnPlayBackEnded(int Handle, int Channel, int Data, nint User)
         {
-            IsPlaying = false;           
-            //返回回调指令
+            IsPlaying = false;
+            _tcpService.PlayBackEnded(IsPlaying);
         }
 
         private int OnWasapiProc(IntPtr buffer, int length, IntPtr user)
@@ -114,7 +113,6 @@ namespace BassPlayerSharp.Service
 
         public void MusicEnd()
         {
-            //MusicBrowseViewModel.StopProgressTimer();
             if (_currentStream != 0)
             {
                 if (OutputMode.Contains("Wasapi"))
@@ -127,33 +125,34 @@ namespace BassPlayerSharp.Service
                 }
                 ChangeWaveChannelTime(TimeSpan.Zero);
             }
-            //App.MainWindow.DispatcherQueue.TryEnqueue(() =>
-            //{
-            //    MusicBrowseViewModel.ProgressSlider = 0;
-            //    AppSettings.isPlaying = false;
-            //    MusicBrowseViewModel.IsPlaying = false;
-            //    MusicBrowseViewModel.UpdatePlayPauseButtonIcon();
-            //});
+            IsPlaying = false;
         }
 
         public void ToggleEqualizer()
         {
-            try
+            if (IsEqualizerEnabled
+               && !(IsDopEnabled
+               && (OutputMode.Contains("WasapiExclusive") || OutputMode == "ASIO")
+               && (Path.GetExtension(MusicUrl).Equals(".dsf", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(MusicUrl).Equals(".dff", StringComparison.OrdinalIgnoreCase)))
+              )
             {
-                if (_currentStream != 0)
+                try
                 {
-                    _peakEQ = new PeakEQ(_currentStream, Q: 0, Bandwith: 1.0);
-                    // 为每个频段添加Band
-                    for (int i = 0; i < _eqFrequencies.Length; i++)
+                    if (_currentStream != 0)
                     {
-                        _bandIndices[i] = _peakEQ.AddBand(_eqFrequencies[i]);
+                        _peakEQ = new PeakEQ(_currentStream, Q: 0, Bandwith: 1.0);
+                        // 为每个频段添加Band
+                        for (int i = 0; i < _eqFrequencies.Length; i++)
+                        {
+                            _bandIndices[i] = _peakEQ.AddBand(_eqFrequencies[i]);
+                        }
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"初始化均衡器时出错: {ex.Message}");
-                _peakEQ = null;
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"初始化均衡器时出错: {ex.Message}");
+                    _peakEQ = null;
+                }
             }
         }
 
@@ -423,19 +422,6 @@ namespace BassPlayerSharp.Service
                     if (!string.IsNullOrWhiteSpace(MusicUrl)) {
                         PlayMusic(MusicUrl);
                     }
-                    //if (MusicBrowseViewModel.CurrentPlayingMusic is not null)
-                    //{
-                    //    MusicBrowseViewModel.PlayMusic(MusicBrowseViewModel.CurrentPlayingMusic);
-                    //}
-                    //else if (MusicBrowseViewModel.CurrentPlayingList is not null && MusicBrowseViewModel.CurrentPlayingList.Count > 0)
-                    //{
-                    //    MusicBrowseViewModel.PlayMusic(MusicBrowseViewModel.CurrentPlayingList[0]);
-                    //}
-                    //else
-                    //{
-                    //    notificationService.SendNotification(ToolUtils.GetString("Error"), "没有可播放的音乐");
-                    //    return;
-                    //}
                 }
                 isPausing = false;
                 IsPlaying = true;
@@ -446,6 +432,7 @@ namespace BassPlayerSharp.Service
                 //});
                 //MusicBrowseViewModel.StartProgressTimer();
             }
+            _tcpService.PlayStateUpdate(IsPlaying);
         }
 
         public void Play(bool isSettingChanged = false)
@@ -487,6 +474,7 @@ namespace BassPlayerSharp.Service
                     SetEqualizer();
                 }
                 IsPlaying = true;
+                _tcpService.PlayStateUpdate(IsPlaying);
                 //播放回调
                 //MusicBrowseViewModel.StartProgressTimer();
                 //App.MainWindow.DispatcherQueue.TryEnqueue(() =>
@@ -539,11 +527,17 @@ namespace BassPlayerSharp.Service
                 dsdGain = ipcSetting.dsdGain;
                 dsdPcmFreq = ipcSetting.dsdPcmFreq;
                 IsEqualizerEnabled = ipcSetting.IsEqualizerEnabled;
-            }
+                this.volume =ipcSetting.Volume;
+                if (ipcSetting.IsSettingChanged)
+                {
+                    ChangingSetting();
+                }
+            }           
         }
 
         public void SetVolume(double volume)
         {
+            this.volume = (float)volume;
             if (_currentStream != 0)
             {
                 if (OutputMode.Contains("WasapiExclusive"))
@@ -604,7 +598,6 @@ namespace BassPlayerSharp.Service
         {
             try
             {
-                //isManualPlayingNext = true;
                 lock (_streamLock)
                 {
                     var currentTime = GetCurrentPosition();

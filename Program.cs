@@ -1,11 +1,11 @@
 ﻿using BassPlayerSharp.Service;
 
 public class Program
-{
-    private static PipeService pipeService { get; set; } = new PipeService();
-    public static void Main()
-    {
+{   
+    public static async Task Main(string[] args)
+    {       
+        var tcpService = new TcpService();
+        await tcpService.StartAsync();
         Console.WriteLine("PipeService started");
-        pipeService.Start();
     }
 }
