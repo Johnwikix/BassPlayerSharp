@@ -51,7 +51,7 @@ namespace BassPlayerSharp.Service
         private const string RequestSemaphoreName = "BassPlayerSharp_RequestReady";
         private const string ResponseSemaphoreName = "BassPlayerSharp_ResponseReady";
         private const string NotificationSemaphoreName = "BassPlayerSharp_NotificationReady";
-
+        private const string ClientAliveMutexName = "WinUIMusicPlayer_SingleInstanceMutex";
         // 共享内存和访问器
         private MemoryMappedFile _mmf;
         private MemoryMappedViewAccessor _accessor;
@@ -72,6 +72,7 @@ namespace BassPlayerSharp.Service
         private static readonly long NotificationBufferOffset = SharedMemoryData.MaxMessageSize + SharedMemoryData.MaxResponseSize;
         private CancellationTokenSource _cancellationTokenSource;
         private Task _listenerTask;
+        private Task _clientMonitorTask;
 
         public TcpService()
         {
@@ -105,7 +106,8 @@ namespace BassPlayerSharp.Service
 
                 // 2. 启动监听任务
                 _listenerTask = Task.Run(() => ListenForRequestsAsync(_cancellationTokenSource.Token));
-                await _listenerTask;
+                _clientMonitorTask = Task.Run(() => MonitorClientAliveAsync(_cancellationTokenSource.Token));
+                await Task.WhenAny(_listenerTask, _clientMonitorTask);
             }
             catch (Exception ex)
             {
@@ -118,6 +120,69 @@ namespace BassPlayerSharp.Service
             }
         }
 
+        private async Task MonitorClientAliveAsync(CancellationToken cancellationToken)
+        {
+            Console.WriteLine("Client alive monitor started...");
+
+            // 等待客户端创建互斥锁（最多等待5秒）
+            Mutex clientMutex = null;
+            for (int i = 0; i < 50; i++)
+            {
+                try
+                {
+                    clientMutex = Mutex.OpenExisting(ClientAliveMutexName);
+                    Console.WriteLine("Client mutex detected. Monitoring...");
+                    break;
+                }
+                catch (WaitHandleCannotBeOpenedException)
+                {
+                    // 互斥锁还不存在，继续等待
+                    await Task.Delay(100, cancellationToken);
+                }
+            }
+
+            if (clientMutex == null)
+            {
+                Console.WriteLine("Warning: Client mutex not found within timeout. Continuing without monitoring.");
+                return;
+            }
+
+            try
+            {
+                // 尝试获取互斥锁（不阻塞），如果能获取说明客户端已退出
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    // WaitOne(0) 表示立即返回，不阻塞
+                    if (clientMutex.WaitOne(0))
+                    {
+                        // 成功获取互斥锁，说明客户端已释放（退出）
+                        Console.WriteLine("Client has exited. Shutting down server immediately...");
+                        clientMutex.ReleaseMutex();
+                        clientMutex.Dispose();
+                        Stop();
+                        break;
+                    }
+
+                    // 每100ms检查一次
+                    await Task.Delay(100, cancellationToken);
+                }
+            }
+            catch (AbandonedMutexException)
+            {
+                // 客户端异常退出，互斥锁被遗弃
+                Console.WriteLine("Client crashed or terminated abnormally. Shutting down server...");
+                Stop();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Client monitor error: {ex.Message}");
+            }
+            finally
+            {
+                clientMutex?.Dispose();
+            }
+        }
+
         public void Stop()
         {
             _cancellationTokenSource.Cancel();
@@ -125,6 +190,7 @@ namespace BassPlayerSharp.Service
             {
                 // 等待监听任务结束
                 _listenerTask?.Wait(100);
+                Dispose();
             }
             catch { /* 忽略取消任务时的异常 */ }
         }
@@ -366,6 +432,14 @@ namespace BassPlayerSharp.Service
                             Message = "MusicEnded",
                             Result = "MusicEnded"
                         };
+                    case "Dispose":
+                        playBackService.Dispose();
+                        return new ResponseMessage
+                        {
+                            Type = 1000,
+                            Message = "Dispose",
+                            Result = "Dispose"
+                        };
                     default:
                         return new ResponseMessage
                         {
@@ -406,6 +480,7 @@ namespace BassPlayerSharp.Service
 
         public void Dispose()
         {
+            playBackService?.Dispose();
             // 清理资源
             _cancellationTokenSource?.Cancel();
             _accessor?.Dispose();
