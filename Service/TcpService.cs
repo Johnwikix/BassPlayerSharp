@@ -43,7 +43,7 @@ namespace BassPlayerSharp.Service
 
     public class TcpService : IDisposable
     {
-        private readonly PlayBackService playBackService;
+        private PlayBackService playBackService;
 
         // 共享内存名称
         private const string MmfName = "BassPlayerSharp_SharedMemory";
@@ -75,8 +75,7 @@ namespace BassPlayerSharp.Service
         private Task _clientMonitorTask;
 
         public TcpService()
-        {
-            this.playBackService = new PlayBackService(this);
+        {           
             _cancellationTokenSource = new CancellationTokenSource();
         }
 
@@ -103,11 +102,11 @@ namespace BassPlayerSharp.Service
                 }
 
                 Console.WriteLine($"Server is ready for shared memory communication. MMF: {MmfName}");
-
+                this.playBackService = new PlayBackService(this);
                 // 2. 启动监听任务
                 _listenerTask = Task.Run(() => ListenForRequestsAsync(_cancellationTokenSource.Token));
                 _clientMonitorTask = Task.Run(() => MonitorClientAliveAsync(_cancellationTokenSource.Token));
-                await Task.WhenAny(_listenerTask, _clientMonitorTask);
+                await Task.WhenAny(_listenerTask, _clientMonitorTask);                
             }
             catch (Exception ex)
             {

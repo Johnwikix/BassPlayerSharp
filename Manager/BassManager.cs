@@ -47,27 +47,11 @@ namespace BassPlayerSharp.Manager
                 var fullPath = Path.Combine(appPath, pluginPath);
                 if (!File.Exists(fullPath))
                 {
-                    Console.WriteLine($"插件文件不存在: {fullPath}");
-                    continue;
-                }
+                    continue;                }
 
                 var pluginHandle = Bass.PluginLoad(fullPath);
-                if (pluginHandle != 0)
-                {
-                    Console.WriteLine($"成功加载插件: {pluginPath}，句柄: {pluginHandle}");
-                }
-                else
-                {
-                    Console.WriteLine($"加载插件失败: {pluginPath}，错误: {Bass.LastError}");
-                }
                 var plugins = Bass.PluginGetInfo(pluginHandle);
-
-                foreach (var plugin in plugins.Formats)
-                {
-                    Console.WriteLine($"  支持格式: {plugin.Name} ({plugin.FileExtensions})");
-                }
             }
-
         }
 
         public static void Free()

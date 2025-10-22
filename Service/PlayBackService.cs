@@ -323,7 +323,7 @@ namespace BassPlayerSharp.Service
                 }
                 else if (OutputMode == "ASIO")
                 {
-                    if (IsDopEnabled && (Path.GetExtension(MusicUrl).Equals("dsf", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(MusicUrl).Equals("dff", StringComparison.OrdinalIgnoreCase)))
+                    if (IsDopEnabled && (Path.GetExtension(MusicUrl).Equals(".dsf", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(MusicUrl).Equals(".dff", StringComparison.OrdinalIgnoreCase)))
                     {
                         _currentStream = BassDsd.CreateStream(MusicUrl, 0, 0, BassFlags.DSDRaw | BassFlags.Decode | BassFlags.AsyncFile);
                     }
