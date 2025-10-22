@@ -440,6 +440,37 @@ namespace BassPlayerSharp.Service
                             Message = "Dispose",
                             Result = "Dispose"
                         };
+                    case "ToggleEqualizer":
+                        playBackService.ToggleEqualizer();
+                        return new ResponseMessage
+                        {
+                            Type = 1,
+                            Message = "Toggled Eq",
+                            Result = "Toggled_Eq"
+                        };
+                    case "SetEqualizer":
+                        playBackService.SetEqualizer();
+                        return new ResponseMessage
+                        {
+                            Type = 1,
+                            Message = "Eq Setted",
+                            Result = "Eq_Setted"
+                        };
+                    case "ClearEqualizer":
+                        playBackService.ClearEqualizer();
+                        return new ResponseMessage {
+                            Type = 1,
+                            Message = "Eq Cleared",
+                            Result = "Eq_Cleared"
+                        };
+                    case "SetEqualizerGain":
+                        var eqGain = JsonSerializer.Deserialize(request.Data, IpcEqualizerGainJsonContext.Default.IpcEqualizerGain);
+                        playBackService.SetEqualizerGain(eqGain.bandIndex,eqGain.gain);
+                        return new ResponseMessage { 
+                            Type = 1,
+                            Message = "EqGain Setted",
+                            Result = "EqGain_Setted"
+                        };
                     default:
                         return new ResponseMessage
                         {

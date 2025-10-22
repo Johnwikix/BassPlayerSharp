@@ -129,7 +129,7 @@ namespace BassPlayerSharp.Service
         }
 
         public void ToggleEqualizer()
-        {
+        {            
             if (IsEqualizerEnabled
                && !(IsDopEnabled
                && (OutputMode.Contains("WasapiExclusive") || OutputMode == "ASIO")
