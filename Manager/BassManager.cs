@@ -17,7 +17,6 @@ namespace BassPlayerSharp.Manager
 
             if (!Bass.Init())
             {
-                Console.WriteLine($"Bass初始化失败: {Bass.LastError}");
                 return;
             }
             _isInitialized = true;
