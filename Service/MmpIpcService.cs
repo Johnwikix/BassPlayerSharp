@@ -1,12 +1,7 @@
 ﻿using BassPlayerSharp.Model;
-using BassPlayerSharp.Utils;
-using System;
 using System.Buffers;
-using System.Collections.Generic;
 using System.IO.MemoryMappedFiles;
-using System.IO.Pipes;
-using System.Net;
-using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -36,7 +31,7 @@ namespace BassPlayerSharp.Service
         }
     }
 
-    public class TcpService : IDisposable
+    public class MmpIpcService : IDisposable
     {
         private PlayBackService playBackService;
 
@@ -72,7 +67,7 @@ namespace BassPlayerSharp.Service
         private readonly ResponseMessage _cachedResponse = new ResponseMessage();
         private readonly ResponseMessage _cachedNotification = new ResponseMessage();
 
-        public TcpService()
+        public MmpIpcService()
         {
             _cancellationTokenSource = new CancellationTokenSource();
 
@@ -258,7 +253,7 @@ namespace BassPlayerSharp.Service
                 Console.WriteLine($"Error sending notification: {ex.Message}");
             }
         }
-
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         // 优化：直接读取到提供的缓冲区，返回实际长度
         private int ReadFromSharedMemoryToBuffer(long offset, byte[] buffer)
         {
@@ -280,7 +275,7 @@ namespace BassPlayerSharp.Service
                 return 0;
             }
         }
-
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         // 优化：直接从ResponseMessage序列化到共享内存，避免中间string
         private void WriteResponseToSharedMemory(long offset, ResponseMessage response)
         {
@@ -329,7 +324,7 @@ namespace BassPlayerSharp.Service
                 Console.WriteLine($"Error writing to MMF: {ex.Message}");
             }
         }
-
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private ResponseMessage ExecuteCommand(RequestMessage request)
         {
             Console.WriteLine($"Executing command: {request.Command}");
@@ -482,7 +477,7 @@ namespace BassPlayerSharp.Service
                 }
                 else if (cmd.SequenceEqual("UpdateEq"))
                 {
-                    PlayBackService.equalizer = ToolUtils.ConvertToDictionary(request.Data);
+                    playBackService.UpdateEqualizerFromJson(request.Data);
                     _cachedResponse.Type = 1;
                     _cachedResponse.Message = "Eq Updated";
                     _cachedResponse.Result = "Eq_Updated";
@@ -508,6 +503,14 @@ namespace BassPlayerSharp.Service
             _cachedNotification.Type = 5;
             _cachedNotification.Message = "PlayStateUpdate";
             _cachedNotification.Result = isPlaying ? "True" : "False";
+            SendNotification(_cachedNotification);
+        }
+
+        public void VolumeWriteBack(float volume)
+        {
+            _cachedNotification.Type = 100;
+            _cachedNotification.Message = "VolumeWriteBack";
+            _cachedNotification.Result = volume.ToString();
             SendNotification(_cachedNotification);
         }
 

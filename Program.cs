@@ -6,7 +6,7 @@ public class Program
     public static async Task Main(string[] args)
     {
         GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency;
-        var tcpService = new TcpService();
+        var tcpService = new MmpIpcService();
         await tcpService.StartAsync();
     }
 }
