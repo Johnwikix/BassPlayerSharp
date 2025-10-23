@@ -327,7 +327,7 @@ namespace BassPlayerSharp.Service
             Console.WriteLine($"Executing command: {request.Command}");
             try
             {
-                // 优化：使用ReadOnlySpan<char>比较，避免string分配
+                //使用ReadOnlySpan<char>比较，避免string分配
                 ReadOnlySpan<char> cmd = request.Command.AsSpan();
 
                 if (cmd.SequenceEqual("Play"))
@@ -356,7 +356,7 @@ namespace BassPlayerSharp.Service
                 }
                 else if (cmd.SequenceEqual("Volume"))
                 {
-                    // 优化：使用Span解析，避免Parse的装箱
+                    //使用Span解析，避免Parse的装箱
                     if (int.TryParse(request.Data.AsSpan(), out int volume))
                     {
                         playBackService.SetVolume(volume);

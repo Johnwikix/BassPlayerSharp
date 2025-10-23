@@ -275,7 +275,6 @@ namespace BassPlayerSharp.Service
                     if (!result) return false;
                 }
 
-                // 优化：使用 switch expression 减少分支
                 switch (OutputMode)
                 {
                     case "WasapiShared":
@@ -334,7 +333,6 @@ namespace BassPlayerSharp.Service
 
                 var isDsd = IsDsdFile(musicUrl);
 
-                // 优化：减少重复的条件检查
                 _currentStream = (OutputMode, isDsd, IsDopEnabled) switch
                 {
                     ("WasapiExclusivePush" or "WasapiExclusiveEvent", true, true) =>
