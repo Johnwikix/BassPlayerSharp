@@ -228,7 +228,7 @@ namespace BassPlayerSharp.Service
                 {
                     break;
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
                     await Task.Delay(500, cancellationToken);
                 }
@@ -336,7 +336,7 @@ namespace BassPlayerSharp.Service
                 if (cmd.SequenceEqual("Play"))
                 {
                     playBackService.PlayMusic(request.Data);
-                    _cachedResponse.Type = 1;
+                    _cachedResponse.Type = MessageType.Success;
                     _cachedResponse.Message = "Started playing";
                     _cachedResponse.Result = "Playback_Started";
                     return _cachedResponse;
@@ -344,7 +344,7 @@ namespace BassPlayerSharp.Service
                 else if (cmd.SequenceEqual("PlayButton"))
                 {
                     playBackService.PlayButton();
-                    _cachedResponse.Type = 1;
+                    _cachedResponse.Type = MessageType.Success;
                     _cachedResponse.Message = "Play button pressed.";
                     _cachedResponse.Result = "Playback_Started";
                     return _cachedResponse;
@@ -352,7 +352,7 @@ namespace BassPlayerSharp.Service
                 else if (cmd.SequenceEqual("SetMusicUrl"))
                 {
                     playBackService.MusicUrl = request.Data;
-                    _cachedResponse.Type = 1;
+                    _cachedResponse.Type = MessageType.Success;
                     _cachedResponse.Message = "Music URL set";
                     _cachedResponse.Result = "MusicUrl_Set";
                     return _cachedResponse;
@@ -364,7 +364,7 @@ namespace BassPlayerSharp.Service
                     {
                         playBackService.SetVolume(volume);
                     }
-                    _cachedResponse.Type = 1;
+                    _cachedResponse.Type = MessageType.Success;
                     _cachedResponse.Message = "Volume set.";
                     _cachedResponse.Result = "Volume_Set";
                     return _cachedResponse;
@@ -372,7 +372,7 @@ namespace BassPlayerSharp.Service
                 else if (cmd.SequenceEqual("GetProgress"))
                 {
                     var progress = playBackService.GetCurrentPosition();
-                    _cachedResponse.Type = 20;
+                    _cachedResponse.Type = MessageType.CurrentTime;
                     _cachedResponse.Message = "Current progress retrieved.";
                     _cachedResponse.Result = progress.ToString();
                     return _cachedResponse;
@@ -380,7 +380,7 @@ namespace BassPlayerSharp.Service
                 else if (cmd.SequenceEqual("GetDuration"))
                 {
                     var duration = playBackService.GetTotalPosition();
-                    _cachedResponse.Type = 21;
+                    _cachedResponse.Type = MessageType.TotalTime;
                     _cachedResponse.Message = "Track duration retrieved.";
                     _cachedResponse.Result = duration.ToString();
                     return _cachedResponse;
@@ -391,7 +391,7 @@ namespace BassPlayerSharp.Service
                     {
                         playBackService.ChangeWaveChannelTime(TimeSpan.FromSeconds(seconds));
                     }
-                    _cachedResponse.Type = 1;
+                    _cachedResponse.Type = MessageType.Success;
                     _cachedResponse.Message = "Playback position changed.";
                     _cachedResponse.Result = "Position_Changed";
                     return _cachedResponse;
@@ -402,7 +402,7 @@ namespace BassPlayerSharp.Service
                     {
                         playBackService.SetVolume(vol);
                     }
-                    _cachedResponse.Type = 1;
+                    _cachedResponse.Type = MessageType.Success;
                     _cachedResponse.Message = "Volume changed.";
                     _cachedResponse.Result = "Volume_Changed";
                     return _cachedResponse;
@@ -410,7 +410,7 @@ namespace BassPlayerSharp.Service
                 else if (cmd.SequenceEqual("UpdateSettings"))
                 {
                     playBackService.UpdateSettings(request.Data);
-                    _cachedResponse.Type = 1;
+                    _cachedResponse.Type = MessageType.Success;
                     _cachedResponse.Message = "Settings updated.";
                     _cachedResponse.Result = "Settings_Updated";
                     return _cachedResponse;
@@ -420,7 +420,7 @@ namespace BassPlayerSharp.Service
                     if (int.TryParse(request.Data.AsSpan(), out int adjust))
                     {
                         var newpos = playBackService.AdjustPlaybackPosition(adjust);
-                        _cachedResponse.Type = 22;
+                        _cachedResponse.Type = MessageType.PositionAdjusted;
                         _cachedResponse.Message = "PlaybackPosition Adjusted.";
                         _cachedResponse.Result = newpos.ToString();
                         return _cachedResponse;
@@ -429,7 +429,7 @@ namespace BassPlayerSharp.Service
                 else if (cmd.SequenceEqual("MusicEnd"))
                 {
                     playBackService.MusicEnd();
-                    _cachedResponse.Type = 1;
+                    _cachedResponse.Type = MessageType.Success;
                     _cachedResponse.Message = "MusicEnded";
                     _cachedResponse.Result = "MusicEnded";
                     return _cachedResponse;
@@ -437,7 +437,7 @@ namespace BassPlayerSharp.Service
                 else if (cmd.SequenceEqual("Dispose"))
                 {
                     playBackService.Dispose();
-                    _cachedResponse.Type = 1000;
+                    _cachedResponse.Type = MessageType.Exit;
                     _cachedResponse.Message = "Dispose";
                     _cachedResponse.Result = "Dispose";
                     return _cachedResponse;
@@ -445,7 +445,7 @@ namespace BassPlayerSharp.Service
                 else if (cmd.SequenceEqual("ToggleEqualizer"))
                 {
                     playBackService.ToggleEqualizer();
-                    _cachedResponse.Type = 1;
+                    _cachedResponse.Type = MessageType.Success;
                     _cachedResponse.Message = "Toggled Eq";
                     _cachedResponse.Result = "Toggled_Eq";
                     return _cachedResponse;
@@ -453,7 +453,7 @@ namespace BassPlayerSharp.Service
                 else if (cmd.SequenceEqual("SetEqualizer"))
                 {
                     playBackService.SetEqualizer();
-                    _cachedResponse.Type = 1;
+                    _cachedResponse.Type = MessageType.Success;
                     _cachedResponse.Message = "Eq Setted";
                     _cachedResponse.Result = "Eq_Setted";
                     return _cachedResponse;
@@ -461,7 +461,7 @@ namespace BassPlayerSharp.Service
                 else if (cmd.SequenceEqual("ClearEqualizer"))
                 {
                     playBackService.ClearEqualizer();
-                    _cachedResponse.Type = 1;
+                    _cachedResponse.Type = MessageType.Success;
                     _cachedResponse.Message = "Eq Cleared";
                     _cachedResponse.Result = "Eq_Cleared";
                     return _cachedResponse;
@@ -470,7 +470,7 @@ namespace BassPlayerSharp.Service
                 {
                     var eqGain = JsonSerializer.Deserialize(request.Data, IpcEqualizerGainJsonContext.Default.IpcEqualizerGain);
                     playBackService.SetEqualizerGain(eqGain.bandIndex, eqGain.gain);
-                    _cachedResponse.Type = 1;
+                    _cachedResponse.Type = MessageType.Success;
                     _cachedResponse.Message = "EqGain Setted";
                     _cachedResponse.Result = "EqGain_Setted";
                     return _cachedResponse;
@@ -478,20 +478,20 @@ namespace BassPlayerSharp.Service
                 else if (cmd.SequenceEqual("UpdateEq"))
                 {
                     playBackService.UpdateEqualizerFromJson(request.Data);
-                    _cachedResponse.Type = 1;
+                    _cachedResponse.Type = MessageType.Success;
                     _cachedResponse.Message = "Eq Updated";
                     _cachedResponse.Result = "Eq_Updated";
                     return _cachedResponse;
                 }
 
-                _cachedResponse.Type = 0;
+                _cachedResponse.Type = MessageType.Failed;
                 _cachedResponse.Message = "Unknown command";
                 _cachedResponse.Result = "Error_UnknownCommand";
                 return _cachedResponse;
             }
             catch (Exception ex)
             {
-                _cachedResponse.Type = 0;
+                _cachedResponse.Type = MessageType.Failed;
                 _cachedResponse.Message = $"Error during command execution: {ex.Message}";
                 _cachedResponse.Result = "Error_Execution";
                 return _cachedResponse;
@@ -500,7 +500,7 @@ namespace BassPlayerSharp.Service
 
         public void PlayStateUpdate(bool isPlaying)
         {
-            _cachedNotification.Type = 5;
+            _cachedNotification.Type = MessageType.PlayState;
             _cachedNotification.Message = "PlayStateUpdate";
             _cachedNotification.Result = isPlaying ? "True" : "False";
             SendNotification(_cachedNotification);
@@ -508,7 +508,7 @@ namespace BassPlayerSharp.Service
 
         public void VolumeWriteBack(float volume)
         {
-            _cachedNotification.Type = 100;
+            _cachedNotification.Type = MessageType.VolumeWriteBack;
             _cachedNotification.Message = "VolumeWriteBack";
             _cachedNotification.Result = volume.ToString();
             SendNotification(_cachedNotification);
@@ -516,7 +516,7 @@ namespace BassPlayerSharp.Service
 
         public void PlayBackEnded(bool isPlaying)
         {
-            _cachedNotification.Type = 11;
+            _cachedNotification.Type = MessageType.PlayEnded;
             _cachedNotification.Message = "PlayBackEnded";
             _cachedNotification.Result = isPlaying ? "True" : "False";
             SendNotification(_cachedNotification);
