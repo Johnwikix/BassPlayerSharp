@@ -57,13 +57,10 @@ namespace BassPlayerSharp.Service
         private Task _listenerTask;
         private Task _clientMonitorTask;
 
-        // 优化：复用缓冲区，避免每次读取都分配新数组
         private readonly byte[] _readBuffer;
         private readonly byte[] _writeBuffer;
         private readonly ArrayBufferWriter<byte> _jsonBufferWriter;
 
-        // 优化：缓存UTF8编码器以避免重复创建
-        private static readonly UTF8Encoding Utf8NoBom = new UTF8Encoding(false);
         private readonly ResponseMessage _cachedResponse = new ResponseMessage();
         private readonly ResponseMessage _cachedNotification = new ResponseMessage();
 
@@ -186,7 +183,7 @@ namespace BassPlayerSharp.Service
 
                     if (cancellationToken.IsCancellationRequested) break;
 
-                    // 优化：直接读取到预分配的缓冲区，使用Span避免string分配
+                    // 直接读取到预分配的缓冲区，使用Span避免string分配
                     int length = ReadFromSharedMemoryToBuffer(RequestBufferOffset, _readBuffer);
 
                     if (length <= 0)
@@ -198,7 +195,7 @@ namespace BassPlayerSharp.Service
                     ResponseMessage response;
                     try
                     {
-                        // 优化：使用ReadOnlySpan反序列化，避免string分配
+                        // 使用ReadOnlySpan反序列化，避免string分配
                         var request = JsonSerializer.Deserialize(jsonBytes, PlayerJsonContext.Default.RequestMessage);
 
                         if (request == null)
@@ -219,7 +216,7 @@ namespace BassPlayerSharp.Service
                         response = new ResponseMessage { Type = 0, Message = $"Server error: {ex.Message}" };
                     }
 
-                    // 优化：直接序列化到缓冲区，避免中间string分配
+                    // 直接序列化到缓冲区，避免中间string分配
                     WriteResponseToSharedMemory(ResponseBufferOffset, response);
                     try { _responseReadySemaphore.Release(); }
                     catch (SemaphoreFullException) { }
@@ -254,7 +251,7 @@ namespace BassPlayerSharp.Service
             }
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        // 优化：直接读取到提供的缓冲区，返回实际长度
+        // 直接读取到提供的缓冲区，返回实际长度
         private int ReadFromSharedMemoryToBuffer(long offset, byte[] buffer)
         {
             try
@@ -276,7 +273,7 @@ namespace BassPlayerSharp.Service
             }
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        // 优化：直接从ResponseMessage序列化到共享内存，避免中间string
+        // 直接从ResponseMessage序列化到共享内存，避免中间string
         private void WriteResponseToSharedMemory(long offset, ResponseMessage response)
         {
             try
@@ -307,7 +304,7 @@ namespace BassPlayerSharp.Service
                 // 写入长度
                 _accessor.Write(offset, length);
                 
-                // 优化：使用WriteArray批量写入，避免逐字节循环
+                // 使用WriteArray批量写入，避免逐字节循环
                 byte[] tempArray = ArrayPool<byte>.Shared.Rent(length);
                 try
                 {
