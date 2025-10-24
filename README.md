@@ -6,7 +6,7 @@ BassPlayerSharp 是一款采用 **C# 开发**的开源音频播放程序，基�
 | 项目维度 | 详情 |
 |----------|------|
 | 项目名称 | BassPlayerSharp |
-| 托管平台 | Gitee（仓库地址：[https://gitee.com/people_1/bass-player-sharp](https://gitee.com/people_1/bass-player-sharp)）<br />Github （仓库地址：[https://github.com/Johnwikix/BassPlayerSharp](） |
+| 托管平台 | Gitee（仓库地址：[https://gitee.com/people_1/bass-player-sharp](https://gitee.com/people_1/bass-player-sharp)）<br />GitHub （仓库地址：[https://github.com/Johnwikix/BassPlayerSharp](） |
 | 开发语言 | C# |
 | 核心依赖 | `un4seen bass` |
 
@@ -24,7 +24,7 @@ BassPlayerSharp 围绕“高性能播放”与“灵活扩展”两大核心设�
 - **播放控制**：支持播放/暂停、进度跳转、音量调节、播放模式切换（列表循环等），并提供播放状态实时反馈。
 
 ### 2. 专业音频增强
-- **10 段均衡器**：内置 32Hz~16kHz 全频段均衡器，支持增益调节（-60dB~0dB）、开启/关闭/重置操作，可通过 JSON 配置批量更新均衡器参数。
+- **10 段均衡器**：内置 32Hz ~ 16kHz 全频段均衡器，支持增益调节，可通过 JSON 配置更新均衡器参数。
 - **音量安全保护**：在 WASAPI 独占模式下自动启用音量安全机制，避免音量骤升导致设备损坏或听觉不适，同时支持音量线性/分贝（dB）值转换。
 
 ### 3. 高性能进程间通信（IPC）
