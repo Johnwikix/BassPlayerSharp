@@ -58,7 +58,6 @@ namespace BassPlayerSharp.Service
         private Task _clientMonitorTask;
 
         private readonly byte[] _readBuffer;
-        private readonly byte[] _writeBuffer;
         private readonly ArrayBufferWriter<byte> _jsonBufferWriter;
 
         private readonly ResponseMessage _cachedResponse = new ResponseMessage();
@@ -70,7 +69,6 @@ namespace BassPlayerSharp.Service
 
             // 预分配缓冲区
             _readBuffer = new byte[SharedMemoryData.MaxMessageSize];
-            _writeBuffer = new byte[SharedMemoryData.MaxResponseSize];
             _jsonBufferWriter = new ArrayBufferWriter<byte>(SharedMemoryData.MaxResponseSize);
         }
 

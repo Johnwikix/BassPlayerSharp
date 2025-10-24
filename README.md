@@ -1,5 +1,5 @@
-# BassPlayerSharp - 基于C#的高性能开源音频播放程序
-BassPlayerSharp 是一款采用 **C# 100% 开发**的开源音频播放程序，基于 `ManagedBass` 音频处理库构建，主打高性能播放控制、多输出模式支持与进程间通信能力。项目通过内存优化、零额外分配设计及模块化架构，为用户提供稳定、低延迟的音频播放体验，同时支持二次开发与功能扩展，代码托管于 Gitee 平台，完全开源可复用。
+# BassPlayerSharp - 基于C#的音频播放程序
+BassPlayerSharp 是一款采用 **C# 开发**的开源音频播放程序，基于 `un4seen bass` 音频处理库构建，主打高性能播放控制、多输出模式支持与进程间通信能力，为用户提供稳定、低延迟的音频播放体验。
 
 
 ## 项目基本信息
@@ -7,16 +7,15 @@ BassPlayerSharp 是一款采用 **C# 100% 开发**的开源音频播放程序，
 |----------|------|
 | 项目名称 | BassPlayerSharp |
 | 托管平台 | Gitee（仓库地址：[https://gitee.com/people_1/bass-player-sharp](https://gitee.com/people_1/bass-player-sharp)）<br />Github （仓库地址：[https://github.com/Johnwikix/BassPlayerSharp](） |
-| 开发语言 | C#（代码占比 100%） |
-| 核心依赖 | `ManagedBass` |
-| 主分支 | master |
+| 开发语言 | C# |
+| 核心依赖 | `un4seen bass` |
 
 
 ## 核心功能与特性
 BassPlayerSharp 围绕“高性能播放”与“灵活扩展”两大核心设计，关键特性如下：
 
 ### 1. 全场景音频播放能力
-- **多格式支持**：原生支持普通音频文件（如 MP3、WAV）及高解析度 DSD 格式（.dsf、.dff），通过 `ManagedBass.Dsd` 模块实现 DSD 原生解码与 DoP（DSD over PCM）输出。
+- **多格式支持**：原生支持普通音频文件（如 MP3、WAV等）及高解析度 DSD 格式（.dsf、.dff），通过 `ManagedBass.Dsd` 模块实现 DSD 原生解码与 DoP（DSD over PCM）输出。
 - **多输出模式**：适配不同播放场景，支持 5 种输出模式：
   - DirectSound（默认，兼容主流设备）
   - WASAPI Shared（系统共享模式，低资源占用）
@@ -29,15 +28,10 @@ BassPlayerSharp 围绕“高性能播放”与“灵活扩展”两大核心设�
 - **音量安全保护**：在 WASAPI 独占模式下自动启用音量安全机制，避免音量骤升导致设备损坏或听觉不适，同时支持音量线性/分贝（dB）值转换。
 
 ### 3. 高性能进程间通信（IPC）
-基于 **共享内存（Memory-Mapped File）** 实现进程间通信，配合信号量（Semaphore）同步机制，支持外部程序（如 UI 客户端）与播放核心的低延迟交互：
+基于 **共享内存（Memory-Mapped File）** 实现进程间通信，配合信号量同步机制，支持外部程序（如 UI 客户端）与播放核心的低延迟交互：
 - **请求-响应机制**：外部客户端可发送播放、音量调节、进度查询等指令，核心服务返回执行结果。
 - **实时通知**：播放状态变化（如播放/暂停切换、播放结束）、音量更新等事件通过通知机制主动推送给客户端。
 - **性能优化**：采用预分配缓冲区、`Span<T>` 零分配序列化、`ArrayPool` 内存复用，减少 GC 压力，提升通信效率。
-
-### 4. 架构与性能优化
-- **模块化设计**：核心逻辑拆分至 `Service` 层（播放控制、IPC 通信）、`Manager` 层（资源管理）、`Model` 层（数据模型），低耦合易扩展。
-- **内存优化**：通过 `GC 优化配置`、显式资源释放（`IDisposable` 实现）、避免中间字符串分配，降低内存占用与 GC 频率。
-- **代码规范**：消除“魔法值”（如用常量定义缓冲区大小、设备名称），关键方法标记 `[MethodImpl(MethodImplOptions.AggressiveInlining)]` 提升执行效率。
 
 
 ## 项目目录结构说明
@@ -76,13 +70,13 @@ BassPlayerSharp/
 | 实时通知 | 提供 `SendNotification()` 方法，由 `PlayBackService` 触发（如播放状态变化、音量更新），主动向客户端推送事件。 |
 
 #### 性能优化点
-- **零分配序列化**：使用 `Utf8JsonWriter` 直接序列化到预分配缓冲区，避免中间字符串创建；通过 `Span<T>` 解析指令，减少内存分配。
-- **内存复用**：通过 `ArrayPool<byte>.Shared` 复用字节数组，降低 GC 压力；预分配 `_readBuffer`、`_writeBuffer` 等缓冲区，避免频繁创建销毁。
+- **零分配序列化**：通过 `Span<T>` 解析指令，减少内存分配。
+- **内存复用**：通过 `ArrayPool<byte>.Shared` 复用字节数组，降低 GC 压力；预分配 `_readBuffer`、`_jsonBufferWriter` 等缓冲区，避免频繁创建销毁。
 
 
-### 2. PlayBackService.cs - 播放控制服务
+### 2. PlayBackService.cs - 播放服务
 #### 功能定位
-音频播放的“核心引擎”，封装 `ManagedBass` 库的底层能力，实现音频解码、输出模式切换、均衡器控制、播放状态管理等核心逻辑。
+音频播放的“核心引擎”，封装 `un4seen bass` 库的底层能力，实现音频解码、输出模式切换、均衡器控制、播放状态管理等核心逻辑。
 
 #### 核心功能模块
 | 模块 | 关键能力 | 实现细节 |
@@ -94,7 +88,7 @@ BassPlayerSharp/
 | 资源释放 | 实现 `IDisposable`，释放音频流、均衡器、Bass 库资源，避免内存泄露。 | `DisposeStream()` 释放当前音频流，`DisposeEq()` 销毁均衡器，`BassManager.Free()` 释放 Bass 库资源。 |
 
 #### 格式与设备支持
-- **支持格式**：MP3、WAV、FLAC 等普通格式；DSD 格式（.dsf、.dff，支持 DoP 输出与原生 DSD 输出）。
+- **支持格式**：mp3、wav、flac、wma、aac、ogg、oga、aiff、aif、m4a、ape、opus、wv等普通格式；DSD 格式（dsf、.dff，支持 DoP 输出与原生 DSD 输出）。
 - **设备适配**：自动识别系统音频设备，支持指定输出设备 ID（`BassOutputDeviceId`/`BassASIODeviceId`），低延迟模式（ASIO、WASAPI Exclusive）适配专业音频设备。
 
 
@@ -102,23 +96,22 @@ BassPlayerSharp/
 ### 1. 环境准备
 - **开发工具**：推荐 Visual Studio 2026（支持 C# 最新语法与 .NET 10.0）。
 - **框架依赖**：.NET 10.0 及以上（参考 `BassPlayerSharp.csproj` 中的 `TargetFramework` 配置）。
-- **NuGet 依赖**：项目需引用 `ManagedBass` 系列库（`ManagedBass`、`ManagedBass.Asio`、`ManagedBass.Dsd`、`ManagedBass.Fx`），工具会自动还原。
 
 ### 2. 代码拉取
 通过 Git 克隆项目到本地：
 ```bash
-git clone https://gitee.com/people_1/bass-player-sharp.git
+git clone https://github.com/Johnwikix/BassPlayerSharp.git
 cd bass-player-sharp
 ```
 
 ### 3. 编译与运行
 1. 用开发工具打开 `BassPlayerSharp.csproj` 项目文件。
-2. 还原 NuGet 依赖（工具自动下载 `ManagedBass` 等相关库）。
+2. 还原 NuGet 依赖。
 3. 直接编译并运行：
    - 程序启动后，`MmpIpcService` 会初始化共享内存与信号量，等待客户端指令。
    - 可通过自定义客户端（或调试代码）发送 `Play` 指令（指定音频文件路径），触发播放逻辑。
 
-### 4. 测试 IPC 通信（示例）
+### 4. 测试 IPC 通信
 外部客户端可通过以下步骤与核心服务通信：
 1. 创建与 `MmpIpcService` 同名的共享内存（`BassPlayerSharp_SharedMemory`）与信号量。
 2. 向共享内存写入 JSON 格式的请求指令
