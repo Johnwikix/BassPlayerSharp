@@ -126,3 +126,7 @@ cd bass-player-sharp
    - 复现步骤（如触发问题的操作、输入指令）。
    - 错误日志（如控制台输出、异常堆栈信息）。
 2. **代码讨论**：在项目“代码”页面针对具体文件（如 `Service/PlayBackService.cs`）发起讨论，与维护者交流技术细节。
+
+## 商业化授权
+
+商业化使用请参考：[Un4seen Developments - BASS](https://www.un4seen.com/)
