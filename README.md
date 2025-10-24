@@ -153,7 +153,7 @@ cd bass-player-sharp
 如果你喜欢本项目，可以通过以下方式支持我们：
 
 - **⭐ Star** 本仓库，让我们知道你的喜爱！
-- **向我们提供反馈**：如果你在使用过程中遇到任何问题或有好的建议，欢迎提出 [Issue](https://www.google.com/search?q=https://github.com/你的GitHub用户名/你的仓库名/issues)。
+- **向我们提供反馈**：如果你在使用过程中遇到任何问题或有好的建议，欢迎提出 [Issue](https://github.com/Johnwikix/BassPlayerSharp/issues)。
 - **分享给你的朋友**：让更多人了解和使用这个项目。
 
 ## 商业化授权
