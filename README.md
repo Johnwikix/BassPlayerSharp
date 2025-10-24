@@ -6,12 +6,10 @@ BassPlayerSharp 是一款采用 **C# 100% 开发**的开源音频播放程序，
 | 项目维度 | 详情 |
 |----------|------|
 | 项目名称 | BassPlayerSharp |
-| 托管平台 | Gitee（仓库地址：[https://gitee.com/people_1/bass-player-sharp](https://gitee.com/people_1/bass-player-sharp)） |
+| 托管平台 | Gitee（仓库地址：[https://gitee.com/people_1/bass-player-sharp](https://gitee.com/people_1/bass-player-sharp)）<br />Github （仓库地址：[https://github.com/Johnwikix/BassPlayerSharp](） |
 | 开发语言 | C#（代码占比 100%） |
-| 核心依赖 | `ManagedBass`（音频处理）、`System.Text.Json`（序列化） |
+| 核心依赖 | `ManagedBass` |
 | 主分支 | master |
-| 最新更新 | 2025-10-23（含 GC 优化、音量保护、Service 层功能迭代） |
-| 发行版 | 暂未发布正式发行版（当前为开发优化阶段） |
 
 
 ## 核心功能与特性
