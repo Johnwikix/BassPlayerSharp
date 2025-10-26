@@ -330,9 +330,7 @@ namespace BassPlayerSharp.Service
                 DisposeStream();
                 BassDsd.DefaultGain = dsdGain;
                 BassDsd.DefaultFrequency = dsdPcmFreq;
-
                 var isDsd = IsDsdFile(musicUrl);
-
                 _currentStream = (OutputMode, isDsd, IsDopEnabled) switch
                 {
                     ("WasapiExclusivePush" or "WasapiExclusiveEvent", true, true) =>
@@ -372,7 +370,7 @@ namespace BassPlayerSharp.Service
             {
                 MusicUrl = musicUrl;
                 Stop();
-                SetSource(musicUrl);
+                SetSource(MusicUrl);
                 Play(isSettingChanged);
             }
         }
@@ -638,8 +636,7 @@ namespace BassPlayerSharp.Service
                 {
                     BassAsio.Stop();
                 }
-                var asioFree = BassAsio.Free();
-                Debug.WriteLine(asioFree ? "释放ASIO成功" : $"释放ASIO失败: {Bass.LastError}");
+                BassAsio.Free();
                 IsPlaying = false;
             }
             catch (Exception ex)
