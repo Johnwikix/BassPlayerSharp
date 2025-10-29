@@ -5,12 +5,9 @@ using ManagedBass.Asio;
 using ManagedBass.Dsd;
 using ManagedBass.Fx;
 using ManagedBass.Wasapi;
-using System;
 using System.Buffers;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
-using System.Text;
 using System.Text.Json;
 
 namespace BassPlayerSharp.Service
@@ -289,9 +286,10 @@ namespace BassPlayerSharp.Service
                             _mmpIpcService.VolumeWriteBack(volume);
                             IsVolumeSafety = false;
                         }
-                        else {
+                        else
+                        {
                             BassWasapi.SetVolume(WasapiVolumeTypes.LogaritmicCurve, (float)LinearToDb(volume));
-                        }                       
+                        }
                         break;
                     case "ASIO":
                         if (IsDopEnabled && IsDsdFile(MusicUrl))
@@ -561,7 +559,8 @@ namespace BassPlayerSharp.Service
                 lock (_streamLock)
                 {
                     var currentTime = GetCurrentPosition();
-                    if (OutputMode.Contains("WasapiExclusive")) {
+                    if (OutputMode.Contains("WasapiExclusive"))
+                    {
                         IsVolumeSafety = true;
                     }
                     if (IsPlaying)

@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace BassPlayerSharp.Model
+﻿namespace BassPlayerSharp.Model
 {
     public static class MessageType
     {

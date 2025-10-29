@@ -3,7 +3,6 @@ using System.Buffers;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Text.Json;
 
 namespace BassPlayerSharp.Service
@@ -235,8 +234,9 @@ namespace BassPlayerSharp.Service
             try
             {
                 WriteResponseToSharedMemory(NotificationBufferOffset, notification);
-                try { 
-                    _notificationReadySemaphore.Release(); 
+                try
+                {
+                    _notificationReadySemaphore.Release();
                 }
                 catch (SemaphoreFullException)
                 {
@@ -289,7 +289,7 @@ namespace BassPlayerSharp.Service
                 int length = jsonBytes.Length;
 
                 // 检查大小限制
-                int maxSize = (offset == NotificationBufferOffset) 
+                int maxSize = (offset == NotificationBufferOffset)
                     ? SharedMemoryData.MaxResponseSize - sizeof(int)
                     : SharedMemoryData.MaxMessageSize - sizeof(int);
 
@@ -301,7 +301,7 @@ namespace BassPlayerSharp.Service
 
                 // 写入长度
                 _accessor.Write(offset, length);
-                
+
                 // 使用WriteArray批量写入，避免逐字节循环
                 byte[] tempArray = ArrayPool<byte>.Shared.Rent(length);
                 try
