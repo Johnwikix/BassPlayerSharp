@@ -39,6 +39,8 @@ namespace BassPlayerSharp.Service
         private const string ResponseSemaphoreName = "BassPlayerSharp_ResponseReady";
         private const string NotificationSemaphoreName = "BassPlayerSharp_NotificationReady";
         private const string ClientAliveMutexName = "WinUIMusicPlayer_SingleInstanceMutex";
+        private const string MutexName = "BassPlayerSharp_SingleInstanceMutex";
+        private static Mutex _mutex = null;
 
         private MemoryMappedFile _mmf;
         private MemoryMappedViewAccessor _accessor;
@@ -64,11 +66,22 @@ namespace BassPlayerSharp.Service
 
         public MmpIpcService()
         {
+            CheckSingleInstance();
             _cancellationTokenSource = new CancellationTokenSource();
-
             // 预分配缓冲区
             _readBuffer = new byte[SharedMemoryData.MaxMessageSize];
             _jsonBufferWriter = new ArrayBufferWriter<byte>(SharedMemoryData.MaxResponseSize);
+        }
+
+        private void CheckSingleInstance()
+        {
+            bool mutexCreated;
+            _mutex = new Mutex(true, MutexName, out mutexCreated);
+            if (!mutexCreated)
+            {
+                Stop();
+                Environment.Exit(0);
+            }
         }
 
         public async Task StartAsync()
@@ -109,6 +122,7 @@ namespace BassPlayerSharp.Service
         {
             Console.WriteLine("Client alive monitor started...");
             Mutex clientMutex = null;
+            Mutex selfMutex = null;
             for (int i = 0; i < 100; i++)
             {
                 try
