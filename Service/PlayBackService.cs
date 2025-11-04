@@ -49,8 +49,9 @@ namespace BassPlayerSharp.Service
         private Timer _fadeTimer;
         private int _currentStep;
         private readonly int _totalSteps = 50;
-        private float _volumeStep;
+        //private float _volumeStep;
         private float _startVolume;
+        private float _targetVolume;
         private bool _isFading;
 
         // 预分配字符串常量，避免重复分配
@@ -103,7 +104,7 @@ namespace BassPlayerSharp.Service
             StopFade();
             _currentStep = 0;
             _startVolume = 0f;
-            _volumeStep = targetVolume / _totalSteps;
+            _targetVolume = targetVolume;
             _isFading = true;
 
             int intervalMs = durationMs / _totalSteps;
@@ -119,8 +120,9 @@ namespace BassPlayerSharp.Service
         {
             StopFade();
             _currentStep = 0;
+            _targetVolume = 0f;
             Bass.ChannelGetAttribute(_currentStream, ChannelAttribute.Volume,out _startVolume);
-            _volumeStep = -_startVolume / _totalSteps;
+            //_volumeStep = -_startVolume / _totalSteps;
             _isFading = true;
 
             int intervalMs = durationMs / _totalSteps;
@@ -147,7 +149,24 @@ namespace BassPlayerSharp.Service
                 return;
             }
 
-            float volume = _startVolume + (_volumeStep * _currentStep);
+            // 使用指数曲线计算音量（对数感知）
+            // t: 0.0 到 1.0 的进度
+            float t = (float)_currentStep / _totalSteps;
+
+            // 使用平方根曲线（淡入）或平方曲线（淡出）
+            float curve;
+            if (_targetVolume > _startVolume)
+            {
+                // 淡入：使用平方曲线，开始慢后面快
+                curve = t * t;
+            }
+            else
+            {
+                // 淡出：使用平方根曲线，开始快后面慢
+                curve = (float)Math.Sqrt(t);
+            }
+
+            float volume = _startVolume + (_targetVolume - _startVolume) * curve;
 
             // 确保音量在有效范围内
             if (volume < 0f) volume = 0f;
