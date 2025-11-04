@@ -45,6 +45,13 @@ namespace BassPlayerSharp.Service
         public int dsdPcmFreq = 88200;
         public bool IsEqualizerEnabled = false;
         private bool IsVolumeSafety = false;
+        private bool IsFadingEnabled = true;
+        private Timer _fadeTimer;
+        private int _currentStep;
+        private int _totalSteps = 50;
+        private float _volumeStep;
+        private float _startVolume;
+        private bool _isFading;
 
         // 预分配字符串常量，避免重复分配
         private static readonly string DsfExtension = ".dsf";
@@ -88,7 +95,78 @@ namespace BassPlayerSharp.Service
             _syncFailCallback = OnPlaybackFailed;
             _myWasapiProcedure = OnWasapiProc;
             _myAsioProcedure = OnAsioProc;
+            _fadeTimer = new Timer(OnFadeTimer, null, Timeout.Infinite, Timeout.Infinite);
         }
+
+        public void FadeIn(float targetVolume, int durationMs = 1000)
+        {
+            StopFade();
+
+            _totalSteps = 50;
+            _currentStep = 0;
+            _startVolume = 0f;
+            _volumeStep = targetVolume / _totalSteps;
+            _isFading = true;
+
+            int intervalMs = durationMs / _totalSteps;
+            Bass.ChannelSetAttribute(_currentStream, ChannelAttribute.Volume, 0f);
+            _fadeTimer.Change(0, intervalMs);
+        }
+
+        /// <summary>
+        /// 淡出：在指定时间内将音量从当前音量降低到0
+        /// </summary>
+        /// <param name="durationMs">淡出持续时间(毫秒)，默认1000ms</param>
+        public void FadeOut(int durationMs = 1000)
+        {
+            StopFade();
+
+            _totalSteps = 50;
+            _currentStep = 0;
+            Bass.ChannelGetAttribute(_currentStream, ChannelAttribute.Volume,out _startVolume);
+            _volumeStep = -_startVolume / _totalSteps;
+            _isFading = true;
+
+            int intervalMs = durationMs / _totalSteps;
+            _fadeTimer.Change(0, intervalMs);
+        }
+
+        /// <summary>
+        /// 停止当前的淡入淡出
+        /// </summary>
+        public void StopFade()
+        {
+            if (_isFading)
+            {
+                _fadeTimer.Change(Timeout.Infinite, Timeout.Infinite);
+                _isFading = false;
+            }
+        }
+
+        private void OnFadeTimer(object state)
+        {
+            if (!_isFading || _currentStep > _totalSteps)
+            {
+                StopFade();
+                return;
+            }
+
+            float volume = _startVolume + (_volumeStep * _currentStep);
+
+            // 确保音量在有效范围内
+            if (volume < 0f) volume = 0f;
+            if (volume > 1f) volume = 1f;
+
+            Bass.ChannelSetAttribute(_currentStream, ChannelAttribute.Volume, volume);
+
+            _currentStep++;
+
+            if (_currentStep > _totalSteps)
+            {
+                StopFade();
+            }
+        }
+
 
         private void OnPlaybackFailed(int Handle, int Channel, int Data, nint User)
         {
@@ -435,12 +513,21 @@ namespace BassPlayerSharp.Service
             {
                 var mode when mode.Contains("Wasapi") => InitializePlayback() && TryStart(() => BassWasapi.Start()),
                 "ASIO" => InitializePlayback() && TryStart(() => BassAsio.Start()),
-                _ => TryStart(() => Bass.ChannelPlay(_currentStream, false))
+                _ => TryStart(() => { 
+                    Bass.ChannelPlay(_currentStream, false);
+                    if (IsFadingEnabled)
+                    {
+                        FadeIn(volume);
+                    }
+                })
             };
 
             if (!success)
             {
                 Bass.ChannelPlay(_currentStream, false);
+                if (IsFadingEnabled) {
+                    FadeIn(volume);
+                }
             }
 
             if (IsEqualizerEnabled)
