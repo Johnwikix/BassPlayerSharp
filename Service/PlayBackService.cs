@@ -48,7 +48,7 @@ namespace BassPlayerSharp.Service
         private bool IsFadingEnabled = true;
         private Timer _fadeTimer;
         private int _currentStep;
-        private int _totalSteps = 50;
+        private readonly int _totalSteps = 50;
         private float _volumeStep;
         private float _startVolume;
         private bool _isFading;
@@ -101,8 +101,6 @@ namespace BassPlayerSharp.Service
         public void FadeIn(float targetVolume, int durationMs = 1000)
         {
             StopFade();
-
-            _totalSteps = 50;
             _currentStep = 0;
             _startVolume = 0f;
             _volumeStep = targetVolume / _totalSteps;
@@ -120,8 +118,6 @@ namespace BassPlayerSharp.Service
         public void FadeOut(int durationMs = 1000)
         {
             StopFade();
-
-            _totalSteps = 50;
             _currentStep = 0;
             Bass.ChannelGetAttribute(_currentStream, ChannelAttribute.Volume,out _startVolume);
             _volumeStep = -_startVolume / _totalSteps;

@@ -491,6 +491,13 @@ namespace BassPlayerSharp.Service
                     _cachedResponse.Message = "Eq Updated";
                     _cachedResponse.Result = "Eq_Updated";
                     return _cachedResponse;
+                } else if (cmd.SequenceEqual("FadeOut"))
+                {
+                    playBackService.FadeOut();
+                    _cachedResponse.Type = MessageType.Success;
+                    _cachedResponse.Message = "Fade Out";
+                    _cachedResponse.Result = "Fade_Out";
+                    return _cachedResponse;
                 }
 
                 _cachedResponse.Type = MessageType.Failed;
