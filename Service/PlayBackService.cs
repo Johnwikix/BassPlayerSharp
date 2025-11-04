@@ -34,7 +34,7 @@ namespace BassPlayerSharp.Service
         private double MiddleDb = -30;
         private PeakEQ _peakEQ;
         public bool IsPlaying = false;
-        public string PlayMode = "ListLoop";
+        //public string PlayMode = "ListLoop";
         public string OutputMode = "DirectSound";
         public int BassOutputDeviceId = -1;
         public int BassASIODeviceId = 0;
@@ -567,7 +567,7 @@ namespace BassPlayerSharp.Service
             var ipcSetting = System.Text.Json.JsonSerializer.Deserialize(settings, IpcSettingJsonContext.Default.IpcSetting);
             if (ipcSetting == null) return;
 
-            PlayMode = ipcSetting.PlayMode;
+            //PlayMode = ipcSetting.PlayMode;
             OutputMode = ipcSetting.OutputMode;
             BassOutputDeviceId = ipcSetting.BassOutputDeviceId;
             BassASIODeviceId = ipcSetting.BassASIODeviceId;
