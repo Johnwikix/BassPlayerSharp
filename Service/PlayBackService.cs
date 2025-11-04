@@ -45,7 +45,7 @@ namespace BassPlayerSharp.Service
         public int dsdPcmFreq = 88200;
         public bool IsEqualizerEnabled = false;
         private bool IsVolumeSafety = false;
-        private bool IsFadingEnabled = true;
+        private bool IsFadingEnabled = false;
         private Timer _fadeTimer;
         private int _currentStep;
         private readonly int _totalSteps = 50;
@@ -577,7 +577,7 @@ namespace BassPlayerSharp.Service
             dsdPcmFreq = ipcSetting.dsdPcmFreq;
             IsEqualizerEnabled = ipcSetting.IsEqualizerEnabled;
             volume = ipcSetting.Volume;
-
+            IsFadingEnabled = ipcSetting.IsFadeEnabled;
             if (ipcSetting.IsSettingChanged)
             {
                 ChangingSetting();
