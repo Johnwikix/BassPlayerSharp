@@ -34,7 +34,6 @@ namespace BassPlayerSharp.Service
         private double MiddleDb = -30;
         private PeakEQ _peakEQ;
         public bool IsPlaying = false;
-        //public string PlayMode = "ListLoop";
         public string OutputMode = "DirectSound";
         public int BassOutputDeviceId = -1;
         public int BassASIODeviceId = 0;
@@ -49,7 +48,8 @@ namespace BassPlayerSharp.Service
         private Timer _fadeTimer;
         private int _currentStep;
         private readonly int _totalSteps = 50;
-        //private float _volumeStep;
+        private float _volumeStep;
+        private float _curve;
         private float _startVolume;
         private float _targetVolume;
         private bool _isFading;
@@ -99,7 +99,7 @@ namespace BassPlayerSharp.Service
             _fadeTimer = new Timer(OnFadeTimer, null, Timeout.Infinite, Timeout.Infinite);
         }
 
-        public void FadeIn(float targetVolume, int durationMs = 1000)
+        public void FadeIn(float targetVolume, int durationMs = 500)
         {
             StopFade();
             _currentStep = 0;
@@ -112,26 +112,18 @@ namespace BassPlayerSharp.Service
             _fadeTimer.Change(0, intervalMs);
         }
 
-        /// <summary>
-        /// 淡出：在指定时间内将音量从当前音量降低到0
-        /// </summary>
-        /// <param name="durationMs">淡出持续时间(毫秒)，默认1000ms</param>
         public void FadeOut(int durationMs = 1000)
         {
             StopFade();
             _currentStep = 0;
             _targetVolume = 0f;
             Bass.ChannelGetAttribute(_currentStream, ChannelAttribute.Volume,out _startVolume);
-            //_volumeStep = -_startVolume / _totalSteps;
             _isFading = true;
 
             int intervalMs = durationMs / _totalSteps;
             _fadeTimer.Change(0, intervalMs);
         }
 
-        /// <summary>
-        /// 停止当前的淡入淡出
-        /// </summary>
         public void StopFade()
         {
             if (_isFading)
@@ -151,22 +143,22 @@ namespace BassPlayerSharp.Service
 
             // 使用指数曲线计算音量（对数感知）
             // t: 0.0 到 1.0 的进度
-            float t = (float)_currentStep / _totalSteps;
+            _volumeStep = (float)_currentStep / _totalSteps;
 
             // 使用平方根曲线（淡入）或平方曲线（淡出）
-            float curve;
+            
             if (_targetVolume > _startVolume)
             {
                 // 淡入：使用平方曲线，开始慢后面快
-                curve = t * t;
+                _curve = _volumeStep * _volumeStep;
             }
             else
             {
                 // 淡出：使用平方根曲线，开始快后面慢
-                curve = (float)Math.Sqrt(t);
+                _curve = (float)Math.Sqrt(_volumeStep);
             }
 
-            float volume = _startVolume + (_targetVolume - _startVolume) * curve;
+            float volume = _startVolume + (_targetVolume - _startVolume) * _curve;
 
             // 确保音量在有效范围内
             if (volume < 0f) volume = 0f;
@@ -460,10 +452,58 @@ namespace BassPlayerSharp.Service
             lock (_streamLock)
             {
                 MusicUrl = musicUrl;
-                Stop();
-                SetSource(MusicUrl);
-                Play(isSettingChanged);
+                if (IsFadingEnabled && IsPlaying && OutputMode == "DirectSound" && _currentStream != 0)
+                {
+                    MusicFadeOut(MusicUrl, isSettingChanged);
+                }
+                else
+                {
+                    Stop();
+                    SetSource(MusicUrl);
+                    Play(isSettingChanged);
+                }
             }
+        }
+
+        private void MusicFadeOut(string newMusicUrl, bool isSettingChanged)
+        {
+            // 检查是否临近歌曲结束（最后3秒）
+            double currentPos = GetCurrentPosition();
+            double totalPos = GetTotalPosition();
+            double remainingTime = totalPos - currentPos;
+
+            // 如果剩余时间小于3秒或歌曲时长无效，直接切换不淡出
+            if (remainingTime < 3 || totalPos <= 0)
+            {
+                Stop();
+                SetSource(newMusicUrl);
+                Play(isSettingChanged);
+                return;
+            }
+
+            // 计算淡出时长：取剩余时间和1秒中的较小值
+            int fadeOutDuration = (int)Math.Min(remainingTime * 500, 500);
+            // 启动淡出
+            FadeOut(fadeOutDuration);
+            // 使用Timer在淡出完成后切换到新歌曲
+            Timer switchTimer = null;
+            switchTimer = new Timer(_ =>
+            {
+                lock (_streamLock)
+                {
+                    try
+                    {
+                        StopFade();
+                        Stop();
+                        SetSource(newMusicUrl);
+                        Play(isSettingChanged);
+                    }
+                    finally
+                    {
+                        switchTimer?.Dispose();
+                    }
+                }
+            }, null, fadeOutDuration + 50, Timeout.Infinite);
         }
 
         public void Stop()
@@ -585,8 +625,6 @@ namespace BassPlayerSharp.Service
         {
             var ipcSetting = System.Text.Json.JsonSerializer.Deserialize(settings, IpcSettingJsonContext.Default.IpcSetting);
             if (ipcSetting == null) return;
-
-            //PlayMode = ipcSetting.PlayMode;
             OutputMode = ipcSetting.OutputMode;
             BassOutputDeviceId = ipcSetting.BassOutputDeviceId;
             BassASIODeviceId = ipcSetting.BassASIODeviceId;
@@ -757,6 +795,7 @@ namespace BassPlayerSharp.Service
         {
             DisposeEq();
             DisposeStream();
+            _fadeTimer?.Dispose();
             BassManager.Free();
         }
     }
