@@ -465,7 +465,7 @@ namespace BassPlayerSharp.Service
             }
         }
 
-        private void MusicFadeOut(string newMusicUrl, bool isSettingChanged)
+        private async void MusicFadeOut(string newMusicUrl, bool isSettingChanged)
         {
             // 检查是否临近歌曲结束（最后3秒）
             double currentPos = GetCurrentPosition();
@@ -486,24 +486,14 @@ namespace BassPlayerSharp.Service
             // 启动淡出
             FadeOut(fadeOutDuration);
             // 使用Timer在淡出完成后切换到新歌曲
-            Timer switchTimer = null;
-            switchTimer = new Timer(_ =>
+            await Task.Delay(fadeOutDuration + 50);
+            lock (_streamLock)
             {
-                lock (_streamLock)
-                {
-                    try
-                    {
-                        StopFade();
-                        Stop();
-                        SetSource(newMusicUrl);
-                        Play(isSettingChanged);
-                    }
-                    finally
-                    {
-                        switchTimer?.Dispose();
-                    }
-                }
-            }, null, fadeOutDuration + 50, Timeout.Infinite);
+                StopFade();
+                Stop();
+                SetSource(newMusicUrl);
+                Play(isSettingChanged);
+            }
         }
 
         public void Stop()
@@ -514,7 +504,7 @@ namespace BassPlayerSharp.Service
             }
         }
 
-        public void PlayButton()
+        public async void PlayButton()
         {
             if (IsPlaying)
             {
@@ -527,7 +517,18 @@ namespace BassPlayerSharp.Service
                         BassAsio.Stop();
                         break;
                     default:
-                        Bass.ChannelStop(_currentStream);
+                        if (IsFadingEnabled)
+                        {
+                            FadeOut();
+                            await Task.Delay(550);
+                            lock (_streamLock)
+                            {
+                                Bass.ChannelStop(_currentStream);
+                            }
+                        }
+                        else {
+                            Bass.ChannelStop(_currentStream);
+                        }                        
                         break;
                 }
                 isPausing = true;
@@ -546,6 +547,9 @@ namespace BassPlayerSharp.Service
                             BassAsio.Start();
                             break;
                         default:
+                            if (IsFadingEnabled) {
+                                FadeIn(volume);
+                            }
                             Bass.ChannelPlay(_currentStream, false);
                             break;
                     }
