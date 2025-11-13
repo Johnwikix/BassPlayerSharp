@@ -521,10 +521,7 @@ namespace BassPlayerSharp.Service
                         {
                             FadeOut();
                             await Task.Delay(550);
-                            lock (_streamLock)
-                            {
-                                Bass.ChannelStop(_currentStream);
-                            }
+                            Bass.ChannelStop(_currentStream);
                         }
                         else {
                             Bass.ChannelStop(_currentStream);
