@@ -98,7 +98,7 @@ namespace BassPlayerSharp.Service
             _myAsioProcedure = OnAsioProc;
             _fadeTimer = new Timer(OnFadeTimer, null, Timeout.Infinite, Timeout.Infinite);
         }
-
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void FadeIn(float targetVolume, int durationMs = 500)
         {
             StopFade();
@@ -111,7 +111,7 @@ namespace BassPlayerSharp.Service
             Bass.ChannelSetAttribute(_currentStream, ChannelAttribute.Volume, 0f);
             _fadeTimer.Change(0, intervalMs);
         }
-
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void FadeOut(int durationMs = 1000)
         {
             StopFade();
@@ -464,7 +464,7 @@ namespace BassPlayerSharp.Service
                 }
             }
         }
-
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private async void MusicFadeOut(string newMusicUrl, bool isSettingChanged)
         {
             // 检查是否临近歌曲结束（最后3秒）
