@@ -112,7 +112,7 @@ namespace BassPlayerSharp.Service
             _fadeTimer.Change(0, intervalMs);
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void FadeOut(int durationMs = 1000)
+        public void FadeOut(int durationMs = 500)
         {
             StopFade();
             _currentStep = 0;
