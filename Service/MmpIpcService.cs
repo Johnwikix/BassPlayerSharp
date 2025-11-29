@@ -40,7 +40,7 @@ namespace BassPlayerSharp.Service
         private const string NotificationSemaphoreName = "BassPlayerSharp_NotificationReady";
         private const string ClientAliveMutexName = "WinUIMusicPlayer_SingleInstanceMutex";
         private const string MutexName = "BassPlayerSharp_SingleInstanceMutex";
-        private static Mutex _mutex = null;
+        private static Mutex? _mutex;
 
         private MemoryMappedFile _mmf;
         private MemoryMappedViewAccessor _accessor;
