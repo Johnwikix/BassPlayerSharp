@@ -121,7 +121,7 @@ namespace BassPlayerSharp.Service
             Console.WriteLine("Client alive monitor started...");
             Mutex clientMutex = null;
             Mutex selfMutex = null;
-            for (int i = 0; i < 200; i++)
+            for (int i = 0; i < 100; i++)
             {
                 try
                 {
