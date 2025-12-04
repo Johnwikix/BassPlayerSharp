@@ -130,7 +130,7 @@ namespace BassPlayerSharp.Service
                 }
                 catch (WaitHandleCannotBeOpenedException)
                 {
-                    await Task.Delay(250, cancellationToken);
+                    await Task.Delay(100, cancellationToken);
                 }
             }
 
