@@ -86,12 +86,10 @@ namespace BassPlayerSharp.Service
 
         public async Task StartAsync()
         {
-            Console.WriteLine("SharedMemoryService starting...");
             try
             {
                 _mmf = MemoryMappedFile.CreateOrOpen(MmfName, MmfSize);
                 _accessor = _mmf.CreateViewAccessor(0, MmfSize);
-
                 _requestReadySemaphore = new Semaphore(0, 1, RequestSemaphoreName, out bool requestCreatedNew);
                 _responseReadySemaphore = new Semaphore(0, 1, ResponseSemaphoreName, out bool responseCreatedNew);
                 _notificationReadySemaphore = new Semaphore(0, 1, NotificationSemaphoreName, out bool notificationCreatedNew);
@@ -123,7 +121,7 @@ namespace BassPlayerSharp.Service
             Console.WriteLine("Client alive monitor started...");
             Mutex clientMutex = null;
             Mutex selfMutex = null;
-            for (int i = 0; i < 100; i++)
+            for (int i = 0; i < 200; i++)
             {
                 try
                 {
@@ -132,7 +130,7 @@ namespace BassPlayerSharp.Service
                 }
                 catch (WaitHandleCannotBeOpenedException)
                 {
-                    await Task.Delay(100, cancellationToken);
+                    await Task.Delay(250, cancellationToken);
                 }
             }
 
