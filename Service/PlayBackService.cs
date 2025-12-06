@@ -16,6 +16,8 @@ namespace BassPlayerSharp.Service
     {
         private readonly MmpIpcService _mmpIpcService;
         public int _currentStream;
+        public int _dsdFlagTempStream;
+        public ChannelInfo _dsdFlagTempChannelInfo;
         private readonly SyncProcedure _syncEndCallback;
         private readonly SyncProcedure _syncFailCallback;
         private readonly WasapiProcedure _myWasapiProcedure;
@@ -57,6 +59,7 @@ namespace BassPlayerSharp.Service
         // 预分配字符串常量，避免重复分配
         private static readonly string DsfExtension = ".dsf";
         private static readonly string DffExtension = ".dff";
+        private static readonly string WvExtension = ".wv";
 
         // 使用 ArrayPool 复用数组
         private static readonly ArrayPool<byte> BytePool = ArrayPool<byte>.Shared;
@@ -300,13 +303,34 @@ namespace BassPlayerSharp.Service
 
         // 优化：缓存文件扩展名检查结果，避免重复 Path.GetExtension 调用
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private bool IsDsdFile(ReadOnlySpan<char> path)
+        private bool IsDsdFile(string path)
         {
             if (path.Length < 4) return false;
-
-            var ext = path.Slice(path.Length - 4);
-            return ext.Equals(DsfExtension, OrdinalIgnoreCase) ||
-                   ext.Equals(DffExtension, OrdinalIgnoreCase);
+            //var ext = path.Slice(path.Length - 4);
+            if (Path.GetExtension(path).Equals(WvExtension, OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _dsdFlagTempStream = BassDsd.CreateStream(path, 0, 0, BassFlags.DSDRaw | BassFlags.Decode | BassFlags.AsyncFile);
+                    Bass.ChannelGetInfo(_dsdFlagTempStream, out _dsdFlagTempChannelInfo);
+                    if (_dsdFlagTempChannelInfo.Frequency >= 352800 && _dsdFlagTempChannelInfo.OriginalResolution == 0 && _dsdFlagTempChannelInfo.ChannelType == ChannelType.WV)
+                    {
+                        return true;
+                    }
+                    else
+                    {                        
+                        return false;
+                    }
+                }
+                finally {
+                    Bass.StreamFree(_dsdFlagTempStream);
+                }                
+            }
+            else
+            {
+                return Path.GetExtension(path).Equals(DsfExtension, OrdinalIgnoreCase) || Path.GetExtension(path).Equals(DffExtension, OrdinalIgnoreCase);
+            }
+            
         }
 
         private bool SwitchDevice(ChannelInfo channelInfo)
