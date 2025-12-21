@@ -208,6 +208,9 @@ namespace BassPlayerSharp.Service
                 {
                     BassWasapi.Stop();
                 }
+                else if (OutputMode.Contains("ASIO")) {
+                    BassAsio.Stop();
+                }
                 else
                 {
                     Bass.ChannelStop(_currentStream);
