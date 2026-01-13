@@ -697,8 +697,15 @@ namespace BassPlayerSharp.Service
         public double GetCurrentPosition()
         {
             if (_currentStream == 0) return 0;
-            var positionBytes = Bass.ChannelGetPosition(_currentStream);
-            return Bass.ChannelBytes2Seconds(_currentStream, positionBytes);
+            var positionBytes = Bass.ChannelGetPosition(_currentStream);            
+            if (Bass.ChannelBytes2Seconds(_currentStream, positionBytes) > 0)
+            {
+                return Bass.ChannelBytes2Seconds(_currentStream, positionBytes);
+            }
+            else
+            {
+                return 0;
+            }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -706,7 +713,13 @@ namespace BassPlayerSharp.Service
         {
             if (_currentStream == 0) return 0;
             var totalBytes = Bass.ChannelGetLength(_currentStream);
-            return Bass.ChannelBytes2Seconds(_currentStream, totalBytes);
+            if (Bass.ChannelBytes2Seconds(_currentStream, totalBytes) > 0)
+            {
+                return Bass.ChannelBytes2Seconds(_currentStream, totalBytes);
+            }
+            else {
+                return 0;
+            }            
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -717,7 +730,14 @@ namespace BassPlayerSharp.Service
             double newPosition = GetCurrentPosition() + seconds;
             newPosition = Math.Clamp(newPosition, 0, GetTotalPosition());
             ChangeWaveChannelTime(TimeSpan.FromSeconds(newPosition));
-            return newPosition;
+            if (newPosition > 0)
+            {
+                return newPosition;
+            }
+            else
+            {
+                return 0;
+            }
         }
 
         public void ChangingSetting()

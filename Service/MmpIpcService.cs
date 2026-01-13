@@ -381,7 +381,7 @@ namespace BassPlayerSharp.Service
                     var progress = playBackService.GetCurrentPosition();
                     _cachedResponse.Type = MessageType.CurrentTime;
                     _cachedResponse.Message = "Current progress retrieved.";
-                    _cachedResponse.Result = progress.ToString();
+                    _cachedResponse.Result = progress.ToString("F6");
                     return _cachedResponse;
                 }
                 else if (cmd.SequenceEqual("GetDuration"))
@@ -389,7 +389,7 @@ namespace BassPlayerSharp.Service
                     var duration = playBackService.GetTotalPosition();
                     _cachedResponse.Type = MessageType.TotalTime;
                     _cachedResponse.Message = "Track duration retrieved.";
-                    _cachedResponse.Result = duration.ToString();
+                    _cachedResponse.Result = duration.ToString("F6");
                     return _cachedResponse;
                 }
                 else if (cmd.SequenceEqual("ChangePosition"))
@@ -429,7 +429,7 @@ namespace BassPlayerSharp.Service
                         var newpos = playBackService.AdjustPlaybackPosition(adjust);
                         _cachedResponse.Type = MessageType.PositionAdjusted;
                         _cachedResponse.Message = "PlaybackPosition Adjusted.";
-                        _cachedResponse.Result = newpos.ToString();
+                        _cachedResponse.Result = newpos.ToString("F6");
                         return _cachedResponse;
                     }
                 }
