@@ -31,9 +31,9 @@ namespace BassPlayerSharp.Service
         private readonly Lock _waveChannelLock = new();
         private readonly int[] _bandIndices = new int[10];
         private readonly float[] _eqFrequencies = { 32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000 };
-        private double MinDb = -60;
-        private double MaxDb = 0;
-        private double MiddleDb = -30;
+        //private double MinDb = -60;
+        //private double MaxDb = 0;
+        //private double MiddleDb = -30;
         private PeakEQ _peakEQ;
         public bool IsPlaying = false;
         public string OutputMode = "DirectSound";
@@ -45,7 +45,6 @@ namespace BassPlayerSharp.Service
         public int dsdGain = 6;
         public int dsdPcmFreq = 88200;
         public bool IsEqualizerEnabled = false;
-        private bool IsVolumeSafety = false;
         private bool IsFadingEnabled = false;
         private Timer _fadeTimer;
         private int _currentStep;
@@ -358,14 +357,6 @@ namespace BassPlayerSharp.Service
                     result = BassAsio.Init(BassASIODeviceId, AsioInitFlags.Thread);
                     break;
             }
-
-            if (OutputMode.Contains("Wasapi"))
-            {
-                BassWasapi.GetInfo(out var info);
-                MaxDb = info.MaxVolume;
-                MinDb = info.MinVolume;
-                MiddleDb = (MinDb + MaxDb) / 2;
-            }
             return result;
         }
 
@@ -391,17 +382,7 @@ namespace BassPlayerSharp.Service
                         break;
                     case "WasapiExclusivePush":
                     case "WasapiExclusiveEvent":
-                        if (IsVolumeSafety)
-                        {
-                            volume = (float)DbToLinear(MiddleDb);
-                            BassWasapi.SetVolume(WasapiVolumeTypes.LogaritmicCurve, (float)MiddleDb);
-                            _mmpIpcService.VolumeWriteBack(volume);
-                            IsVolumeSafety = false;
-                        }
-                        else
-                        {
-                            BassWasapi.SetVolume(WasapiVolumeTypes.LogaritmicCurve, (float)LinearToDb(volume));
-                        }
+                        BassWasapi.SetVolume(WasapiVolumeTypes.WindowsHybridCurve, (float)volume);
                         break;
                     case "ASIO":
                         if (IsDopEnabled && IsDsdFile(MusicUrl))
@@ -679,7 +660,7 @@ namespace BassPlayerSharp.Service
             {
                 case "WasapiExclusivePush":
                 case "WasapiExclusiveEvent":
-                    BassWasapi.SetVolume(WasapiVolumeTypes.LogaritmicCurve, (float)LinearToDb(volume));
+                    BassWasapi.SetVolume(WasapiVolumeTypes.WindowsHybridCurve, (float)volume);
                     break;
                 case "WasapiShared":
                     BassWasapi.SetVolume(WasapiVolumeTypes.Session, (float)volume);
@@ -747,10 +728,6 @@ namespace BassPlayerSharp.Service
                 lock (_streamLock)
                 {
                     var currentTime = GetCurrentPosition();
-                    if (OutputMode.Contains("WasapiExclusive"))
-                    {
-                        IsVolumeSafety = true;
-                    }
                     if (IsPlaying)
                     {
                         Stop();
@@ -765,25 +742,6 @@ namespace BassPlayerSharp.Service
                 }
             }
             catch { }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public double LinearToDb(double linearValue)
-        {
-            if (linearValue <= 0) return MinDb;
-            if (linearValue >= 1) return MaxDb;
-
-            return MaxDb + (MinDb - MaxDb) * (1 - Math.Log10(9 * linearValue + 1));
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public double DbToLinear(double dbValue)
-        {
-            dbValue = Math.Clamp(dbValue, MinDb, MaxDb);
-            if (dbValue <= MinDb) return 0;
-
-            double dbPosition = (dbValue - MaxDb) / (MinDb - MaxDb);
-            return (Math.Pow(10, (1 - dbPosition)) - 1) / 9;
         }
 
         private void DisposeStream()
