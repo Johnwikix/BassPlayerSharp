@@ -26,4 +26,7 @@
     <PackageReference Include="ManagedBass.Fx" Version="4.0.2" />
     <PackageReference Include="ManagedBass.Wasapi" Version="4.0.2" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\musicplayer\External\BassPlayerIpc.Shared\BassPlayerIpc.Shared.csproj" />
+  </ItemGroup>
 </Project>
