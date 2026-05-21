@@ -597,6 +597,30 @@ namespace BassPlayerSharp.Service
             catch (Exception ex) { Debug.WriteLine($"Stop ASIO error: {ex}"); }
         }
 
+        public (int id, string name)[] GetWasapiDevices()
+        {
+            var list = new List<(int, string)>();
+            int count = BassWasapi.DeviceCount;
+            for (int i = 0; i < count; i++)
+            {
+                if (BassWasapi.GetDeviceInfo(i, out var info) && info.IsEnabled && info.Type != WasapiDeviceType.Microphone)
+                    list.Add((i, info.Name ?? string.Empty));
+            }
+            return list.ToArray();
+        }
+
+        public (int id, string name)[] GetAsioDevices()
+        {
+            var list = new List<(int, string)>();
+            int count = BassAsio.DeviceCount;
+            for (int i = 0; i < count; i++)
+            {
+                if (BassAsio.GetDeviceInfo(i, out var info))
+                    list.Add((i, info.Name ?? string.Empty));
+            }
+            return list.ToArray();
+        }
+
         public void Dispose()
         {
             _peakEQ?.Dispose();

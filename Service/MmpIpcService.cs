@@ -51,6 +51,10 @@ namespace BassPlayerSharp.Service
         private readonly byte[] _requestBuffer;
         private int _notificationSlot;
 
+        // Device paging cache: first request enumerates, subsequent pages come from cache.
+        private (int id, string name)[]? _cachedWasapiDevices;
+        private (int id, string name)[]? _cachedAsioDevices;
+
         public MmpIpcService()
         {
             CheckSingleInstance();
@@ -282,6 +286,14 @@ namespace BassPlayerSharp.Service
                             WriteEmptyResponse(MessageTypeId.Success);
                             break;
                         }
+                    case CommandId.GetWasapiDevices:
+                        HandleGetDevices(MessageTypeId.WasapiDevices, ref _cachedWasapiDevices,
+                            () => _playBackService!.GetWasapiDevices(), payload);
+                        break;
+                    case CommandId.GetAsioDevices:
+                        HandleGetDevices(MessageTypeId.AsioDevices, ref _cachedAsioDevices,
+                            () => _playBackService!.GetAsioDevices(), payload);
+                        break;
                     default:
                         WriteErrorResponse(ErrorCode.InvalidCommand);
                         break;
@@ -292,6 +304,45 @@ namespace BassPlayerSharp.Service
                 WriteErrorResponse(ErrorCode.Unknown);
             }
             SignalResponseReady();
+        }
+
+        private void HandleGetDevices(
+            MessageTypeId typeId,
+            ref (int id, string name)[]? cache,
+            Func<(int id, string name)[]> enumerate,
+            ReadOnlySpan<byte> payload)
+        {
+            var req = BinarySerializer.ReadGetDevicesRequest(payload);
+            cache ??= enumerate();
+            var devices = cache;
+
+            int total = devices.Length;
+            int perPage = MaxDevicesPerResponse();
+            int totalPages = total == 0 ? 1 : (total + perPage - 1) / perPage;
+            if (req.Page >= totalPages) req.Page = 0;
+
+            int start = req.Page * perPage;
+            int end = Math.Min(start + perPage, total);
+            int count = end - start;
+
+            int maxResp = SharedMemoryData.MaxResponseSize - IpcConstants.EnvelopeHeaderSize;
+            Span<byte> buf = stackalloc byte[maxResp];
+            int offset = BinarySerializer.WriteDeviceListPageHeader(buf, req.Page, (byte)totalPages, (byte)count);
+            for (int i = start; i < end; i++)
+            {
+                var span = buf[offset..];
+                offset += BinarySerializer.WriteDeviceEntry(span, devices[i].id, devices[i].name);
+            }
+            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, typeId, buf[..offset], SharedMemoryData.MaxResponseSize);
+            SignalResponseReady();
+        }
+
+        private static int MaxDevicesPerResponse()
+        {
+            int maxPayload = SharedMemoryData.MaxResponseSize - IpcConstants.EnvelopeHeaderSize;
+            int perEntry = BinarySerializer.MaxDeviceEntrySize(64); // assume max 64-byte names
+            int afterHeader = maxPayload - BinarySerializer.DeviceListPageHeaderSize;
+            return Math.Max(1, afterHeader / perEntry);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
