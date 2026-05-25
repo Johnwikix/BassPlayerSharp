@@ -114,55 +114,70 @@ namespace BassPlayerSharp.Service
 
         private void OnFadeTimer(object? state)
         {
-            if (!_isFading || _currentStep > _totalSteps) { StopFade(); return; }
-            _volumeStep = (float)_currentStep / _totalSteps;
-            _curve = _targetVolume > _startVolume
-                ? _volumeStep * _volumeStep
-                : (float)Math.Sqrt(_volumeStep);
-            float vol = _startVolume + (_targetVolume - _startVolume) * _curve;
-            if (vol < 0f) vol = 0f;
-            if (vol > 1f) vol = 1f;
-            Bass.ChannelSetAttribute(_currentStream, ChannelAttribute.Volume, vol);
-            _currentStep++;
-            if (_currentStep > _totalSteps) StopFade();
+            try
+            {
+                if (!_isFading || _currentStep > _totalSteps) { StopFade(); return; }
+                _volumeStep = (float)_currentStep / _totalSteps;
+                _curve = _targetVolume > _startVolume
+                    ? _volumeStep * _volumeStep
+                    : (float)Math.Sqrt(_volumeStep);
+                float vol = _startVolume + (_targetVolume - _startVolume) * _curve;
+                if (vol < 0f) vol = 0f;
+                if (vol > 1f) vol = 1f;
+                Bass.ChannelSetAttribute(_currentStream, ChannelAttribute.Volume, vol);
+                _currentStep++;
+                if (_currentStep > _totalSteps) StopFade();
+            }
+            catch { StopFade(); }
         }
 
         private void OnPlaybackFailed(int Handle, int Channel, int Data, nint User)
         {
-            IsPlaying = false;
+            try { IsPlaying = false; }
+            catch { }
         }
 
         private void OnPlayBackEnded(int Handle, int Channel, int Data, nint User)
         {
-            IsPlaying = false;
-            _mmpIpcService.PlayBackEnded(IsPlaying);
+            try
+            {
+                IsPlaying = false;
+                _mmpIpcService.PlayBackEnded(IsPlaying);
+            }
+            catch { }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private int OnWasapiProc(IntPtr buffer, int length, IntPtr user)
         {
-            return _currentStream != 0 ? Bass.ChannelGetData(_currentStream, buffer, length) : 0;
+            try { return _currentStream != 0 ? Bass.ChannelGetData(_currentStream, buffer, length) : 0; }
+            catch { return 0; }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private int OnAsioProc(bool input, int channel, IntPtr buffer, int length, IntPtr user)
         {
-            return _currentStream != 0 ? Bass.ChannelGetData(user.ToInt32(), buffer, length) : 0;
+            try { return _currentStream != 0 ? Bass.ChannelGetData(user.ToInt32(), buffer, length) : 0; }
+            catch (Exception ex) { Debug.WriteLine($"AsioProc error: {ex.Message}"); return 0; }
         }
 
         public void MusicEnd()
         {
-            if (_currentStream != 0)
+            try
             {
-                if (OutputMode.Contains("Wasapi"))
-                    BassWasapi.Stop();
-                else if (OutputMode.Contains("ASIO"))
-                    BassAsio.Stop();
-                else
-                    Bass.ChannelStop(_currentStream);
-                ChangeWaveChannelTime(TimeSpan.Zero);
+                if (_currentStream != 0)
+                {
+                    if (OutputMode.Contains("Wasapi"))
+                        BassWasapi.Stop();
+                    else if (OutputMode.Contains("ASIO"))
+                        BassAsio.Stop();
+                    else
+                        Bass.ChannelStop(_currentStream);
+                    ChangeWaveChannelTime(TimeSpan.Zero);
+                }
+                IsPlaying = false;
             }
-            IsPlaying = false;
+            catch { }
         }
 
         public void UpdateEqualizer(UpdateEqRequest eq)
@@ -373,26 +388,30 @@ namespace BassPlayerSharp.Service
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private async void MusicFadeOut(string newMusicUrl, bool isSettingChanged)
         {
-            double currentPos = GetCurrentPosition();
-            double totalPos = GetTotalPosition();
-            double remainingTime = totalPos - currentPos;
-            if (remainingTime < 3 || totalPos <= 0)
+            try
             {
-                Stop();
-                SetSource(newMusicUrl);
-                Play(isSettingChanged);
-                return;
+                double currentPos = GetCurrentPosition();
+                double totalPos = GetTotalPosition();
+                double remainingTime = totalPos - currentPos;
+                if (remainingTime < 3 || totalPos <= 0)
+                {
+                    Stop();
+                    SetSource(newMusicUrl);
+                    Play(isSettingChanged);
+                    return;
+                }
+                int fadeOutDuration = (int)Math.Min(remainingTime * 500, 500);
+                FadeOut(fadeOutDuration);
+                await Task.Delay(fadeOutDuration + 50);
+                lock (_streamLock)
+                {
+                    StopFade();
+                    Stop();
+                    SetSource(newMusicUrl);
+                    Play(isSettingChanged);
+                }
             }
-            int fadeOutDuration = (int)Math.Min(remainingTime * 500, 500);
-            FadeOut(fadeOutDuration);
-            await Task.Delay(fadeOutDuration + 50);
-            lock (_streamLock)
-            {
-                StopFade();
-                Stop();
-                SetSource(newMusicUrl);
-                Play(isSettingChanged);
-            }
+            catch { }
         }
 
         public void Stop()
@@ -402,40 +421,44 @@ namespace BassPlayerSharp.Service
 
         public async void PlayButton()
         {
-            if (IsPlaying)
+            try
             {
-                switch (OutputMode)
-                {
-                    case var mode when mode.Contains("Wasapi"): BassWasapi.Stop(); break;
-                    case "ASIO": BassAsio.Stop(); break;
-                    default:
-                        if (IsFadingEnabled) { FadeOut(); await Task.Delay(550); Bass.ChannelStop(_currentStream); }
-                        else Bass.ChannelStop(_currentStream);
-                        break;
-                }
-                isPausing = true;
-                IsPlaying = false;
-            }
-            else
-            {
-                if (_currentStream != 0)
+                if (IsPlaying)
                 {
                     switch (OutputMode)
                     {
-                        case var mode when mode.Contains("Wasapi"): BassWasapi.Start(); break;
-                        case "ASIO": BassAsio.Start(); break;
+                        case var mode when mode.Contains("Wasapi"): BassWasapi.Stop(); break;
+                        case "ASIO": BassAsio.Stop(); break;
                         default:
-                            if (IsFadingEnabled) FadeIn(volume);
-                            Bass.ChannelPlay(_currentStream, false);
+                            if (IsFadingEnabled) { FadeOut(); await Task.Delay(550); Bass.ChannelStop(_currentStream); }
+                            else Bass.ChannelStop(_currentStream);
                             break;
                     }
+                    isPausing = true;
+                    IsPlaying = false;
                 }
-                else if (!string.IsNullOrWhiteSpace(MusicUrl))
-                    PlayMusic(MusicUrl);
-                isPausing = false;
-                IsPlaying = true;
+                else
+                {
+                    if (_currentStream != 0)
+                    {
+                        switch (OutputMode)
+                        {
+                            case var mode when mode.Contains("Wasapi"): BassWasapi.Start(); break;
+                            case "ASIO": BassAsio.Start(); break;
+                            default:
+                                if (IsFadingEnabled) FadeIn(volume);
+                                Bass.ChannelPlay(_currentStream, false);
+                                break;
+                        }
+                    }
+                    else if (!string.IsNullOrWhiteSpace(MusicUrl))
+                        PlayMusic(MusicUrl);
+                    isPausing = false;
+                    IsPlaying = true;
+                }
+                _mmpIpcService.PlayStateUpdate(IsPlaying);
             }
-            _mmpIpcService.PlayStateUpdate(IsPlaying);
+            catch { }
         }
 
         public void Play(bool isSettingChanged = false)
@@ -454,7 +477,8 @@ namespace BassPlayerSharp.Service
             }
             if (IsEqualizerEnabled) SetEqualizer();
             IsPlaying = true;
-            _mmpIpcService.PlayStateUpdate(IsPlaying);
+            try { _mmpIpcService.PlayStateUpdate(IsPlaying); }
+            catch { }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

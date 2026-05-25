@@ -168,6 +168,8 @@ namespace BassPlayerSharp.Service
 
                     if (_accessor == null) continue;
 
+                    byte sequenceId = IpcEnvelope.ReadSequenceId(_accessor, RequestBufferOffset);
+
                     int payloadLen = IpcEnvelope.ReadPayload(
                         _accessor, RequestBufferOffset,
                         _requestBuffer,
@@ -175,20 +177,20 @@ namespace BassPlayerSharp.Service
 
                     if (payloadLen < 0)
                     {
-                        WriteErrorResponse(ErrorCode.InvalidPayload);
+                        WriteErrorResponse(ErrorCode.InvalidPayload, sequenceId);
                         SignalResponseReady();
                         continue;
                     }
 
                     var commandId = IpcEnvelope.ReadCommandId(_accessor, RequestBufferOffset);
-                    HandleCommand(commandId, _requestBuffer.AsSpan(0, payloadLen));
+                    HandleCommand(commandId, _requestBuffer.AsSpan(0, payloadLen), sequenceId);
                 }
                 catch (OperationCanceledException) { break; }
                 catch (Exception) { await Task.Delay(500, cancellationToken); }
             }
         }
 
-        private void HandleCommand(CommandId commandId, ReadOnlySpan<byte> payload)
+        private void HandleCommand(CommandId commandId, ReadOnlySpan<byte> payload, byte sequenceId)
         {
             try
             {
@@ -198,110 +200,110 @@ namespace BassPlayerSharp.Service
                         {
                             var req = BinarySerializer.ReadPlayRequest(payload);
                             _playBackService!.PlayMusic(req.Url ?? string.Empty);
-                            WriteEmptyResponse(MessageTypeId.Success);
+                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                             break;
                         }
                     case CommandId.PlayButton:
                         _playBackService!.PlayButton();
-                        WriteEmptyResponse(MessageTypeId.Success);
+                        WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                         break;
                     case CommandId.SetMusicUrl:
                         {
                             var req = BinarySerializer.ReadSetMusicUrlRequest(payload);
                             _playBackService!.MusicUrl = req.Url ?? string.Empty;
-                            WriteEmptyResponse(MessageTypeId.Success);
+                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                             break;
                         }
                     case CommandId.GetProgress:
                         {
                             var pos = _playBackService!.GetCurrentPosition();
-                            WritePositionResponsePayload(MessageTypeId.CurrentTime, pos);
+                            WritePositionResponsePayload(MessageTypeId.CurrentTime, pos, sequenceId);
                             break;
                         }
                     case CommandId.GetDuration:
                         {
                             var dur = _playBackService!.GetTotalPosition();
-                            WritePositionResponsePayload(MessageTypeId.TotalTime, dur);
+                            WritePositionResponsePayload(MessageTypeId.TotalTime, dur, sequenceId);
                             break;
                         }
                     case CommandId.ChangePosition:
                         {
                             var req = BinarySerializer.ReadChangePositionRequest(payload);
                             _playBackService!.ChangeWaveChannelTime(TimeSpan.FromSeconds(req.PositionSeconds));
-                            WriteEmptyResponse(MessageTypeId.Success);
+                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                             break;
                         }
                     case CommandId.ChangeVolume:
                         {
                             var req = BinarySerializer.ReadChangeVolumeRequest(payload);
                             _playBackService!.SetVolume(req.Volume);
-                            WriteEmptyResponse(MessageTypeId.Success);
+                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                             break;
                         }
                     case CommandId.MusicEnd:
                         _playBackService!.MusicEnd();
-                        WriteEmptyResponse(MessageTypeId.Success);
+                        WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                         break;
                     case CommandId.FadeOut:
                         _playBackService!.FadeOut();
-                        WriteEmptyResponse(MessageTypeId.Success);
+                        WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                         break;
                     case CommandId.UpdateSettings:
                         {
                             var settings = BinarySerializer.ReadIpcSetting(payload);
                             _playBackService!.UpdateSettings(settings);
-                            WriteEmptyResponse(MessageTypeId.Success);
+                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                             break;
                         }
                     case CommandId.AdjustPlaybackPosition:
                         {
                             var req = BinarySerializer.ReadAdjustPlaybackPositionRequest(payload);
                             var newPos = _playBackService!.AdjustPlaybackPosition(req.Seconds);
-                            WritePositionResponsePayload(MessageTypeId.PositionAdjusted, newPos);
+                            WritePositionResponsePayload(MessageTypeId.PositionAdjusted, newPos, sequenceId);
                             break;
                         }
                     case CommandId.ToggleEqualizer:
                         _playBackService!.ToggleEqualizer();
-                        WriteEmptyResponse(MessageTypeId.Success);
+                        WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                         break;
                     case CommandId.SetEqualizer:
                         _playBackService!.SetEqualizer();
-                        WriteEmptyResponse(MessageTypeId.Success);
+                        WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                         break;
                     case CommandId.ClearEqualizer:
                         _playBackService!.ClearEqualizer();
-                        WriteEmptyResponse(MessageTypeId.Success);
+                        WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                         break;
                     case CommandId.SetEqualizerGain:
                         {
                             var req = BinarySerializer.ReadSetEqualizerGainRequest(payload);
                             _playBackService!.SetEqualizerGain(req.BandIndex, req.Gain);
-                            WriteEmptyResponse(MessageTypeId.Success);
+                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                             break;
                         }
                     case CommandId.UpdateEq:
                         {
                             var req = BinarySerializer.ReadUpdateEqRequest(payload);
                             _playBackService!.UpdateEqualizer(req);
-                            WriteEmptyResponse(MessageTypeId.Success);
+                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                             break;
                         }
                     case CommandId.GetWasapiDevices:
                         HandleGetDevices(MessageTypeId.WasapiDevices, ref _cachedWasapiDevices,
-                            () => _playBackService!.GetWasapiDevices(), payload);
+                            () => _playBackService!.GetWasapiDevices(), payload, sequenceId);
                         break;
                     case CommandId.GetAsioDevices:
                         HandleGetDevices(MessageTypeId.AsioDevices, ref _cachedAsioDevices,
-                            () => _playBackService!.GetAsioDevices(), payload);
+                            () => _playBackService!.GetAsioDevices(), payload, sequenceId);
                         break;
                     default:
-                        WriteErrorResponse(ErrorCode.InvalidCommand);
+                        WriteErrorResponse(ErrorCode.InvalidCommand, sequenceId);
                         break;
                 }
             }
             catch (Exception)
             {
-                WriteErrorResponse(ErrorCode.Unknown);
+                WriteErrorResponse(ErrorCode.Unknown, sequenceId);
             }
             SignalResponseReady();
         }
@@ -310,7 +312,8 @@ namespace BassPlayerSharp.Service
             MessageTypeId typeId,
             ref (int id, string name)[]? cache,
             Func<(int id, string name)[]> enumerate,
-            ReadOnlySpan<byte> payload)
+            ReadOnlySpan<byte> payload,
+            byte sequenceId)
         {
             var req = BinarySerializer.ReadGetDevicesRequest(payload);
             cache ??= enumerate();
@@ -333,8 +336,7 @@ namespace BassPlayerSharp.Service
                 var span = buf[offset..];
                 offset += BinarySerializer.WriteDeviceEntry(span, devices[i].id, devices[i].name);
             }
-            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, typeId, buf[..offset], SharedMemoryData.MaxResponseSize);
-            SignalResponseReady();
+            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, typeId, sequenceId, buf[..offset], SharedMemoryData.MaxResponseSize);
         }
 
         private static int MaxDevicesPerResponse()
@@ -346,27 +348,27 @@ namespace BassPlayerSharp.Service
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void WriteErrorResponse(ErrorCode code)
+        private void WriteErrorResponse(ErrorCode code, byte sequenceId)
         {
             Span<byte> buf = stackalloc byte[BinarySerializer.FailedResponseSize];
             var resp = new FailedResponse { Code = code };
             BinarySerializer.WriteFailedResponse(buf, resp);
-            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, MessageTypeId.Failed, buf, SharedMemoryData.MaxResponseSize);
+            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, MessageTypeId.Failed, sequenceId, buf, SharedMemoryData.MaxResponseSize);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void WriteEmptyResponse(MessageTypeId typeId)
+        private void WriteEmptyResponse(MessageTypeId typeId, byte sequenceId)
         {
-            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, typeId, ReadOnlySpan<byte>.Empty, SharedMemoryData.MaxResponseSize);
+            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, typeId, sequenceId, ReadOnlySpan<byte>.Empty, SharedMemoryData.MaxResponseSize);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void WritePositionResponsePayload(MessageTypeId typeId, double positionSeconds)
+        private void WritePositionResponsePayload(MessageTypeId typeId, double positionSeconds, byte sequenceId)
         {
             Span<byte> buf = stackalloc byte[BinarySerializer.PositionResponseSize];
             var resp = new PositionResponse { PositionSeconds = positionSeconds };
             BinarySerializer.WritePositionResponse(buf, resp);
-            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, typeId, buf, SharedMemoryData.MaxResponseSize);
+            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, typeId, sequenceId, buf, SharedMemoryData.MaxResponseSize);
         }
 
         private void SignalResponseReady()
@@ -378,16 +380,20 @@ namespace BassPlayerSharp.Service
         public void SendNotification(MessageTypeId typeId, scoped ReadOnlySpan<byte> payload)
         {
             if (_accessor == null) return;
-            Interlocked.Increment(ref _notificationSlot);
-            long offset = NotificationBufferOffset;
-            IpcEnvelope.WriteResponse(_accessor, offset, typeId, payload, SharedMemoryData.MaxResponseSize);
-            try { _notificationReadySemaphore!.Release(); }
-            catch (SemaphoreFullException)
+            try
             {
                 Interlocked.Increment(ref _notificationSlot);
-                IpcEnvelope.WriteResponse(_accessor, offset, MessageTypeId.NotificationDropped, ReadOnlySpan<byte>.Empty, SharedMemoryData.MaxResponseSize);
-                try { _notificationReadySemaphore!.Release(); } catch { }
+                long offset = NotificationBufferOffset;
+                IpcEnvelope.WriteResponse(_accessor, offset, typeId, 0, payload, SharedMemoryData.MaxResponseSize);
+                try { _notificationReadySemaphore!.Release(); }
+                catch (SemaphoreFullException)
+                {
+                    Interlocked.Increment(ref _notificationSlot);
+                    IpcEnvelope.WriteResponse(_accessor, offset, MessageTypeId.NotificationDropped, 0, ReadOnlySpan<byte>.Empty, SharedMemoryData.MaxResponseSize);
+                    try { _notificationReadySemaphore!.Release(); } catch { }
+                }
             }
+            catch { }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
