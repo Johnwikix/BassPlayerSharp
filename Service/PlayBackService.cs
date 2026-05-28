@@ -390,8 +390,9 @@ namespace BassPlayerSharp.Service
         {
             try
             {
-                double currentPos = GetCurrentPosition();
-                double totalPos = GetTotalPosition();
+                var (curMs, totalMs) = GetTimeProgress();
+                double currentPos = curMs / 1000.0;
+                double totalPos = totalMs / 1000.0;
                 double remainingTime = totalPos - currentPos;
                 if (remainingTime < 3 || totalPos <= 0)
                 {
@@ -540,6 +541,16 @@ namespace BassPlayerSharp.Service
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public (long currentMs, long totalMs) GetTimeProgress()
+        {
+            int stream = _currentStream;
+            if (stream == 0) return (0, 0);
+            long currentMs = (long)(Bass.ChannelBytes2Seconds(stream, Bass.ChannelGetPosition(stream)) * 1000);
+            long totalMs = (long)(Bass.ChannelBytes2Seconds(stream, Bass.ChannelGetLength(stream)) * 1000);
+            return (currentMs, totalMs);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public double GetCurrentPosition()
         {
             if (_currentStream == 0) return 0;
@@ -561,8 +572,9 @@ namespace BassPlayerSharp.Service
         public double AdjustPlaybackPosition(int seconds)
         {
             if (!IsPlaying || _currentStream == 0) return 0;
-            double newPosition = GetCurrentPosition() + seconds;
-            newPosition = Math.Clamp(newPosition, 0, GetTotalPosition());
+            var (curMs, totalMs) = GetTimeProgress();
+            double newPosition = curMs / 1000.0 + seconds;
+            newPosition = Math.Clamp(newPosition, 0, totalMs / 1000.0);
             ChangeWaveChannelTime(TimeSpan.FromSeconds(newPosition));
             return newPosition > 0 ? newPosition : 0;
         }
@@ -573,7 +585,8 @@ namespace BassPlayerSharp.Service
             {
                 lock (_streamLock)
                 {
-                    var currentTime = GetCurrentPosition();
+                    var (curMs, _) = GetTimeProgress();
+                    double currentTime = curMs / 1000.0;
                     if (IsPlaying)
                     {
                         Stop();

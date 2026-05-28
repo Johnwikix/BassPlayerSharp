@@ -226,6 +226,12 @@ namespace BassPlayerSharp.Service
                             WritePositionResponsePayload(MessageTypeId.TotalTime, dur, sequenceId);
                             break;
                         }
+                    case CommandId.GetTimeProgress:
+                        {
+                            var (curMs, totalMs) = _playBackService!.GetTimeProgress();
+                            WriteTimeProgressPayload(curMs, totalMs, sequenceId);
+                            break;
+                        }
                     case CommandId.ChangePosition:
                         {
                             var req = BinarySerializer.ReadChangePositionRequest(payload);
@@ -360,6 +366,14 @@ namespace BassPlayerSharp.Service
         private void WriteEmptyResponse(MessageTypeId typeId, byte sequenceId)
         {
             IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, typeId, sequenceId, ReadOnlySpan<byte>.Empty, SharedMemoryData.MaxResponseSize);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void WriteTimeProgressPayload(long currentMs, long totalMs, byte sequenceId)
+        {
+            Span<byte> buf = stackalloc byte[BinarySerializer.TimeProgressSize];
+            BinarySerializer.WriteTimeProgress(buf, currentMs, totalMs);
+            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, MessageTypeId.TimeProgress, sequenceId, buf, SharedMemoryData.MaxResponseSize);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
