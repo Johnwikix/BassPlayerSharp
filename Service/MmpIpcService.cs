@@ -1,7 +1,7 @@
-﻿using System.IO.MemoryMappedFiles;
+﻿using BassPlayerIpc.Shared;
+using System.IO.MemoryMappedFiles;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using BassPlayerIpc.Shared;
 
 namespace BassPlayerSharp.Service
 {

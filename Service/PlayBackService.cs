@@ -1,5 +1,5 @@
-﻿using BassPlayerSharp.Manager;
-using BassPlayerIpc.Shared;
+﻿using BassPlayerIpc.Shared;
+using BassPlayerSharp.Manager;
 using ManagedBass;
 using ManagedBass.Asio;
 using ManagedBass.Dsd;
@@ -57,10 +57,16 @@ namespace BassPlayerSharp.Service
 
         public readonly Dictionary<float, string> FloatToString = new()
         {
-            [32f] = "32Hz", [64f] = "64Hz", [125f] = "125Hz",
-            [250f] = "250Hz", [500f] = "500Hz",
-            [1000f] = "1kHz", [2000f] = "2kHz",
-            [4000f] = "4kHz", [8000f] = "8kHz", [16000f] = "16kHz"
+            [32f] = "32Hz",
+            [64f] = "64Hz",
+            [125f] = "125Hz",
+            [250f] = "250Hz",
+            [500f] = "500Hz",
+            [1000f] = "1kHz",
+            [2000f] = "2kHz",
+            [4000f] = "4kHz",
+            [8000f] = "8kHz",
+            [16000f] = "16kHz"
         };
 
         public readonly float[] EqGains = new float[10];
