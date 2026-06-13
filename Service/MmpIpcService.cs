@@ -214,18 +214,6 @@ namespace BassPlayerSharp.Service
                             WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                             break;
                         }
-                    case CommandId.GetProgress:
-                        {
-                            var pos = _playBackService!.GetCurrentPosition();
-                            WritePositionResponsePayload(MessageTypeId.CurrentTime, pos, sequenceId);
-                            break;
-                        }
-                    case CommandId.GetDuration:
-                        {
-                            var dur = _playBackService!.GetTotalPosition();
-                            WritePositionResponsePayload(MessageTypeId.TotalTime, dur, sequenceId);
-                            break;
-                        }
                     case CommandId.GetTimeProgress:
                         {
                             var (curMs, totalMs) = _playBackService!.GetTimeProgress();
@@ -235,7 +223,7 @@ namespace BassPlayerSharp.Service
                     case CommandId.ChangePosition:
                         {
                             var req = BinarySerializer.ReadChangePositionRequest(payload);
-                            _playBackService!.ChangeWaveChannelTime(TimeSpan.FromSeconds(req.PositionSeconds));
+                            _playBackService!.ChangeWaveChannelTime(req.PositionMs);
                             WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                             break;
                         }
@@ -264,7 +252,7 @@ namespace BassPlayerSharp.Service
                     case CommandId.AdjustPlaybackPosition:
                         {
                             var req = BinarySerializer.ReadAdjustPlaybackPositionRequest(payload);
-                            var newPos = _playBackService!.AdjustPlaybackPosition(req.Seconds);
+                            var newPos = _playBackService!.AdjustPlaybackPosition(req.CurMs, req.TotalMs, req.DeltaMs);
                             WritePositionResponsePayload(MessageTypeId.PositionAdjusted, newPos, sequenceId);
                             break;
                         }
@@ -377,10 +365,10 @@ namespace BassPlayerSharp.Service
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void WritePositionResponsePayload(MessageTypeId typeId, double positionSeconds, byte sequenceId)
+        private void WritePositionResponsePayload(MessageTypeId typeId, long positionMs, byte sequenceId)
         {
             Span<byte> buf = stackalloc byte[BinarySerializer.PositionResponseSize];
-            var resp = new PositionResponse { PositionSeconds = positionSeconds };
+            var resp = new PositionResponse { PositionMs = positionMs };
             BinarySerializer.WritePositionResponse(buf, resp);
             IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, typeId, sequenceId, buf, SharedMemoryData.MaxResponseSize);
         }

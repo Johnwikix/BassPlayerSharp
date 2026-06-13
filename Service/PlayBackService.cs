@@ -179,7 +179,7 @@ namespace BassPlayerSharp.Service
                         BassAsio.Stop();
                     else
                         Bass.ChannelStop(_currentStream);
-                    ChangeWaveChannelTime(TimeSpan.Zero);
+                    ChangeWaveChannelTime(0);
                 }
                 IsPlaying = false;
             }
@@ -381,7 +381,10 @@ namespace BassPlayerSharp.Service
             {
                 MusicUrl = musicUrl;
                 if (IsFadingEnabled && IsPlaying && OutputMode == "DirectSound" && _currentStream != 0)
-                    MusicFadeOut(MusicUrl, isSettingChanged);
+                {
+                    var (curMs, totalMs) = GetTimeProgress();
+                    MusicFadeOut(MusicUrl, isSettingChanged, curMs, totalMs);
+                }
                 else
                 {
                     Stop();
@@ -392,22 +395,19 @@ namespace BassPlayerSharp.Service
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private async void MusicFadeOut(string newMusicUrl, bool isSettingChanged)
+        private async void MusicFadeOut(string newMusicUrl, bool isSettingChanged, long curMs, long totalMs)
         {
             try
             {
-                var (curMs, totalMs) = GetTimeProgress();
-                double currentPos = curMs / 1000.0;
-                double totalPos = totalMs / 1000.0;
-                double remainingTime = totalPos - currentPos;
-                if (remainingTime < 3 || totalPos <= 0)
+                long remainingMs = totalMs - curMs;
+                if (remainingMs < 3000 || totalMs <= 0)
                 {
                     Stop();
                     SetSource(newMusicUrl);
                     Play(isSettingChanged);
                     return;
                 }
-                int fadeOutDuration = (int)Math.Min(remainingTime * 500, 500);
+                int fadeOutDuration = (int)Math.Min(remainingMs / 2, 500);
                 FadeOut(fadeOutDuration);
                 await Task.Delay(fadeOutDuration + 50);
                 lock (_streamLock)
@@ -495,13 +495,13 @@ namespace BassPlayerSharp.Service
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void ChangeWaveChannelTime(TimeSpan timeSpan)
+        public void ChangeWaveChannelTime(long positionMs)
         {
             lock (_waveChannelLock)
             {
                 if (_currentStream != 0)
                 {
-                    var targetBytes = Bass.ChannelSeconds2Bytes(_currentStream, timeSpan.TotalSeconds);
+                    var targetBytes = Bass.ChannelSeconds2Bytes(_currentStream, positionMs / 1000.0);
                     Bass.ChannelSetPosition(_currentStream, targetBytes);
                 }
             }
@@ -551,38 +551,22 @@ namespace BassPlayerSharp.Service
         {
             int stream = _currentStream;
             if (stream == 0) return (0, 0);
-            long currentMs = (long)(Bass.ChannelBytes2Seconds(stream, Bass.ChannelGetPosition(stream)) * 1000);
-            long totalMs = (long)(Bass.ChannelBytes2Seconds(stream, Bass.ChannelGetLength(stream)) * 1000);
+            long totalBytes = Bass.ChannelGetLength(stream);
+            long totalMs = (long)Math.Round(Bass.ChannelBytes2Seconds(stream, totalBytes) * 1000);
+            long currentBytes = Bass.ChannelGetPosition(stream);
+            long currentMs = totalBytes > 0
+                ? (long)Math.Round((double)currentBytes / totalBytes * totalMs)
+                : 0;
             return (currentMs, totalMs);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public double GetCurrentPosition()
-        {
-            if (_currentStream == 0) return 0;
-            var positionBytes = Bass.ChannelGetPosition(_currentStream);
-            return Bass.ChannelBytes2Seconds(_currentStream, positionBytes) > 0
-                ? Bass.ChannelBytes2Seconds(_currentStream, positionBytes) : 0;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public double GetTotalPosition()
-        {
-            if (_currentStream == 0) return 0;
-            var totalBytes = Bass.ChannelGetLength(_currentStream);
-            return Bass.ChannelBytes2Seconds(_currentStream, totalBytes) > 0
-                ? Bass.ChannelBytes2Seconds(_currentStream, totalBytes) : 0;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public double AdjustPlaybackPosition(int seconds)
+        public long AdjustPlaybackPosition(long curMs, long totalMs, long deltaMs)
         {
             if (!IsPlaying || _currentStream == 0) return 0;
-            var (curMs, totalMs) = GetTimeProgress();
-            double newPosition = curMs / 1000.0 + seconds;
-            newPosition = Math.Clamp(newPosition, 0, totalMs / 1000.0);
-            ChangeWaveChannelTime(TimeSpan.FromSeconds(newPosition));
-            return newPosition > 0 ? newPosition : 0;
+            long newPosMs = Math.Clamp(curMs + deltaMs, 0, totalMs);
+            ChangeWaveChannelTime(newPosMs);
+            return newPosMs;
         }
 
         public void ChangingSetting()
@@ -592,7 +576,6 @@ namespace BassPlayerSharp.Service
                 lock (_streamLock)
                 {
                     var (curMs, _) = GetTimeProgress();
-                    double currentTime = curMs / 1000.0;
                     if (IsPlaying)
                     {
                         Stop();
@@ -603,7 +586,7 @@ namespace BassPlayerSharp.Service
                     {
                         SetSource(MusicUrl!);
                     }
-                    ChangeWaveChannelTime(TimeSpan.FromSeconds(currentTime));
+                    ChangeWaveChannelTime(curMs);
                 }
             }
             catch { }
