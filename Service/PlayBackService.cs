@@ -560,15 +560,6 @@ namespace BassPlayerSharp.Service
             return (currentMs, totalMs);
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public long AdjustPlaybackPosition(long curMs, long totalMs, long deltaMs)
-        {
-            if (!IsPlaying || _currentStream == 0) return 0;
-            long newPosMs = Math.Clamp(curMs + deltaMs, 0, totalMs);
-            ChangeWaveChannelTime(newPosMs);
-            return newPosMs;
-        }
-
         public void ChangingSetting()
         {
             try

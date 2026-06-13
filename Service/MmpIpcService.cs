@@ -249,13 +249,6 @@ namespace BassPlayerSharp.Service
                             WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                             break;
                         }
-                    case CommandId.AdjustPlaybackPosition:
-                        {
-                            var req = BinarySerializer.ReadAdjustPlaybackPositionRequest(payload);
-                            var newPos = _playBackService!.AdjustPlaybackPosition(req.CurMs, req.TotalMs, req.DeltaMs);
-                            WritePositionResponsePayload(MessageTypeId.PositionAdjusted, newPos, sequenceId);
-                            break;
-                        }
                     case CommandId.ToggleEqualizer:
                         _playBackService!.ToggleEqualizer();
                         WriteEmptyResponse(MessageTypeId.Success, sequenceId);
@@ -362,15 +355,6 @@ namespace BassPlayerSharp.Service
             Span<byte> buf = stackalloc byte[BinarySerializer.TimeProgressSize];
             BinarySerializer.WriteTimeProgress(buf, currentMs, totalMs);
             IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, MessageTypeId.TimeProgress, sequenceId, buf, SharedMemoryData.MaxResponseSize);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void WritePositionResponsePayload(MessageTypeId typeId, long positionMs, byte sequenceId)
-        {
-            Span<byte> buf = stackalloc byte[BinarySerializer.PositionResponseSize];
-            var resp = new PositionResponse { PositionMs = positionMs };
-            BinarySerializer.WritePositionResponse(buf, resp);
-            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, typeId, sequenceId, buf, SharedMemoryData.MaxResponseSize);
         }
 
         private void SignalResponseReady()
