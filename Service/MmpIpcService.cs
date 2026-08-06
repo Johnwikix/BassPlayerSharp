@@ -1,17 +1,15 @@
-﻿using BassPlayerSharp.Model;
-using System.Buffers;
+﻿using BassPlayerIpc.Shared;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Text.Json;
 
 namespace BassPlayerSharp.Service
 {
     [StructLayout(LayoutKind.Sequential)]
     public struct SharedMemoryData
     {
-        public const int MaxMessageSize = 4096;
-        public const int MaxResponseSize = 1024;
+        public const int MaxMessageSize = 2048;
+        public const int MaxResponseSize = 512;
 
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = MaxMessageSize)]
         public byte[] RequestBuffer;
@@ -32,53 +30,43 @@ namespace BassPlayerSharp.Service
 
     public class MmpIpcService : IDisposable
     {
-        private PlayBackService playBackService;
-
-        private const string MmfName = "BassPlayerSharp_SharedMemory";
-        private const string RequestSemaphoreName = "BassPlayerSharp_RequestReady";
-        private const string ResponseSemaphoreName = "BassPlayerSharp_ResponseReady";
-        private const string NotificationSemaphoreName = "BassPlayerSharp_NotificationReady";
-        private const string ClientAliveMutexName = "WinUIMusicPlayer_SingleInstanceMutex";
-        private const string MutexName = "BassPlayerSharp_SingleInstanceMutex";
-        private static Mutex? _mutex;
-
-        private MemoryMappedFile _mmf;
-        private MemoryMappedViewAccessor _accessor;
-
-        private Semaphore _requestReadySemaphore;
-        private Semaphore _responseReadySemaphore;
-        private Semaphore _notificationReadySemaphore;
+        private PlayBackService? _playBackService;
 
         private static readonly long MmfSize = SharedMemoryData.MaxMessageSize + SharedMemoryData.MaxResponseSize * 2;
         private const long RequestBufferOffset = 0;
         private static readonly long ResponseBufferOffset = SharedMemoryData.MaxMessageSize;
         private static readonly long NotificationBufferOffset = SharedMemoryData.MaxMessageSize + SharedMemoryData.MaxResponseSize;
 
-        private CancellationTokenSource _cancellationTokenSource;
-        private Task _listenerTask;
-        private Task _clientMonitorTask;
+        private MemoryMappedFile? _mmf;
+        private MemoryMappedViewAccessor? _accessor;
 
-        private readonly byte[] _readBuffer;
-        private readonly ArrayBufferWriter<byte> _jsonBufferWriter;
+        private Semaphore? _requestReadySemaphore;
+        private Semaphore? _responseReadySemaphore;
+        private Semaphore? _notificationReadySemaphore;
 
-        private readonly ResponseMessage _cachedResponse = new ResponseMessage();
-        private readonly ResponseMessage _cachedNotification = new ResponseMessage();
+        private CancellationTokenSource? _cancellationTokenSource;
+        private Task? _listenerTask;
+        private Task? _clientMonitorTask;
+
+        private readonly byte[] _requestBuffer;
+        private int _notificationSlot;
+
+        // Device paging cache: first request enumerates, subsequent pages come from cache.
+        private (int id, string name)[]? _cachedWasapiDevices;
+        private (int id, string name)[]? _cachedAsioDevices;
 
         public MmpIpcService()
         {
             CheckSingleInstance();
             _cancellationTokenSource = new CancellationTokenSource();
-            // 预分配缓冲区
-            _readBuffer = new byte[SharedMemoryData.MaxMessageSize];
-            _jsonBufferWriter = new ArrayBufferWriter<byte>(SharedMemoryData.MaxResponseSize);
+            _requestBuffer = new byte[SharedMemoryData.MaxMessageSize];
         }
 
-        private void CheckSingleInstance()
+        private static void CheckSingleInstance()
         {
-            _mutex = new Mutex(true, MutexName, out bool mutexCreated);
+            _ = new Mutex(true, IpcConstants.MutexName, out bool mutexCreated);
             if (!mutexCreated)
             {
-                Stop();
                 Environment.Exit(0);
             }
         }
@@ -87,21 +75,16 @@ namespace BassPlayerSharp.Service
         {
             try
             {
-                _mmf = MemoryMappedFile.CreateOrOpen(MmfName, MmfSize);
+                _mmf = MemoryMappedFile.CreateOrOpen(IpcConstants.MmfName, MmfSize);
                 _accessor = _mmf.CreateViewAccessor(0, MmfSize);
-                _requestReadySemaphore = new Semaphore(0, 1, RequestSemaphoreName, out bool requestCreatedNew);
-                _responseReadySemaphore = new Semaphore(0, 1, ResponseSemaphoreName, out bool responseCreatedNew);
-                _notificationReadySemaphore = new Semaphore(0, 1, NotificationSemaphoreName, out bool notificationCreatedNew);
+                _requestReadySemaphore = new Semaphore(0, 1, IpcConstants.RequestSemaphoreName, out _);
+                _responseReadySemaphore = new Semaphore(0, 1, IpcConstants.ResponseSemaphoreName, out _);
+                _notificationReadySemaphore = new Semaphore(0, 1, IpcConstants.NotificationSemaphoreName, out _);
 
-                if (!requestCreatedNew || !responseCreatedNew)
-                {
-                    Console.WriteLine("Warning: Semaphores already exist. Ensure no other server is running.");
-                }
-
-                Console.WriteLine($"Server is ready for shared memory communication. MMF: {MmfName}");
-                this.playBackService = new PlayBackService(this);
-                _listenerTask = Task.Run(() => ListenForRequestsAsync(_cancellationTokenSource.Token));
-                _clientMonitorTask = Task.Run(() => MonitorClientAliveAsync(_cancellationTokenSource.Token));
+                Console.WriteLine($"Server ready. MMF: {IpcConstants.MmfName}");
+                _playBackService = new PlayBackService(this);
+                _listenerTask = Task.Run(() => ListenForRequestsAsync(_cancellationTokenSource!.Token));
+                _clientMonitorTask = Task.Run(() => MonitorClientAliveAsync(_cancellationTokenSource!.Token));
                 await Task.WhenAny(_listenerTask, _clientMonitorTask);
             }
             catch (Exception ex)
@@ -111,20 +94,19 @@ namespace BassPlayerSharp.Service
             finally
             {
                 Dispose();
-                Console.WriteLine("SharedMemoryService stopped.");
+                Console.WriteLine("Server stopped.");
             }
         }
 
         private async Task MonitorClientAliveAsync(CancellationToken cancellationToken)
         {
-            Console.WriteLine("Client alive monitor started...");
-            Mutex clientMutex = null;
-            Mutex selfMutex = null;
+            Console.WriteLine("Client monitor started...");
+            Mutex? clientMutex = null;
             for (int i = 0; i < 100; i++)
             {
                 try
                 {
-                    clientMutex = Mutex.OpenExisting(ClientAliveMutexName);
+                    clientMutex = Mutex.OpenExisting(IpcConstants.ClientAliveMutexName);
                     break;
                 }
                 catch (WaitHandleCannotBeOpenedException)
@@ -132,10 +114,9 @@ namespace BassPlayerSharp.Service
                     await Task.Delay(100, cancellationToken);
                 }
             }
-
             if (clientMutex == null)
             {
-                Console.WriteLine("Warning: Client mutex not found within timeout. Continuing without monitoring.");
+                Console.WriteLine("Warning: Client mutex not found within timeout.");
                 return;
             }
             try
@@ -144,7 +125,7 @@ namespace BassPlayerSharp.Service
                 {
                     if (clientMutex.WaitOne(0))
                     {
-                        Console.WriteLine("Client has exited. Shutting down server immediately...");
+                        Console.WriteLine("Client exited. Shutting down server...");
                         clientMutex.ReleaseMutex();
                         clientMutex.Dispose();
                         Stop();
@@ -155,7 +136,7 @@ namespace BassPlayerSharp.Service
             }
             catch (AbandonedMutexException)
             {
-                Console.WriteLine("Client crashed or terminated abnormally. Shutting down server...");
+                Console.WriteLine("Client crashed. Shutting down...");
                 Stop();
             }
             catch (Exception ex)
@@ -170,374 +151,264 @@ namespace BassPlayerSharp.Service
 
         public void Stop()
         {
-            _cancellationTokenSource.Cancel();
-            try
-            {
-                _listenerTask?.Wait(100);
-                Dispose();
-            }
-            catch { }
+            _cancellationTokenSource?.Cancel();
+            try { _listenerTask?.Wait(100); } catch { }
+            Dispose();
         }
 
         private async Task ListenForRequestsAsync(CancellationToken cancellationToken)
         {
-            Console.WriteLine("Listening for shared memory requests...");
-
+            Console.WriteLine("Listening for requests...");
             while (!cancellationToken.IsCancellationRequested)
             {
                 try
                 {
-                    await Task.Run(() => _requestReadySemaphore.WaitOne(), cancellationToken);
-
+                    await Task.Run(() => _requestReadySemaphore!.WaitOne(), cancellationToken);
                     if (cancellationToken.IsCancellationRequested) break;
 
-                    // 直接读取到预分配的缓冲区，使用Span避免string分配
-                    int length = ReadFromSharedMemoryToBuffer(RequestBufferOffset, _readBuffer);
+                    if (_accessor == null) continue;
 
-                    if (length <= 0)
+                    byte sequenceId = IpcEnvelope.ReadSequenceId(_accessor, RequestBufferOffset);
+
+                    int payloadLen = IpcEnvelope.ReadPayload(
+                        _accessor, RequestBufferOffset,
+                        _requestBuffer,
+                        SharedMemoryData.MaxMessageSize - IpcConstants.EnvelopeHeaderSize);
+
+                    if (payloadLen < 0)
                     {
+                        WriteErrorResponse(ErrorCode.InvalidPayload, sequenceId);
+                        SignalResponseReady();
                         continue;
                     }
 
-                    ReadOnlySpan<byte> jsonBytes = _readBuffer.AsSpan(0, length);
-                    ResponseMessage response;
-                    try
-                    {
-                        // 使用ReadOnlySpan反序列化，避免string分配
-                        var request = JsonSerializer.Deserialize(jsonBytes, PlayerJsonContext.Default.RequestMessage);
-
-                        if (request == null)
-                        {
-                            response = new ResponseMessage { Type = 0, Message = "Invalid request format." };
-                        }
-                        else
-                        {
-                            response = ExecuteCommand(request);
-                        }
-                    }
-                    catch (JsonException jEx)
-                    {
-                        response = new ResponseMessage { Type = 0, Message = $"JSON deserialization failed: {jEx.Message}" };
-                    }
-                    catch (Exception ex)
-                    {
-                        response = new ResponseMessage { Type = 0, Message = $"Server error: {ex.Message}" };
-                    }
-
-                    // 直接序列化到缓冲区，避免中间string分配
-                    WriteResponseToSharedMemory(ResponseBufferOffset, response);
-                    try { _responseReadySemaphore.Release(); }
-                    catch (SemaphoreFullException) { }
+                    var commandId = IpcEnvelope.ReadCommandId(_accessor, RequestBufferOffset);
+                    HandleCommand(commandId, _requestBuffer.AsSpan(0, payloadLen), sequenceId);
                 }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                catch (Exception)
-                {
-                    await Task.Delay(500, cancellationToken);
-                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception) { await Task.Delay(500, cancellationToken); }
             }
         }
 
-        public void SendNotification(ResponseMessage notification)
+        private void HandleCommand(CommandId commandId, ReadOnlySpan<byte> payload, byte sequenceId)
         {
             try
             {
-                WriteResponseToSharedMemory(NotificationBufferOffset, notification);
-                try
+                switch (commandId)
                 {
-                    _notificationReadySemaphore.Release();
+                    case CommandId.Play:
+                        {
+                            var req = BinarySerializer.ReadPlayRequest(payload);
+                            _playBackService!.PlayMusic(req.Url ?? string.Empty);
+                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
+                            break;
+                        }
+                    case CommandId.PlayButton:
+                        _playBackService!.PlayButton();
+                        WriteEmptyResponse(MessageTypeId.Success, sequenceId);
+                        break;
+                    case CommandId.SetMusicUrl:
+                        {
+                            var req = BinarySerializer.ReadSetMusicUrlRequest(payload);
+                            _playBackService!.MusicUrl = req.Url ?? string.Empty;
+                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
+                            break;
+                        }
+                    case CommandId.GetTimeProgress:
+                        {
+                            var (curMs, totalMs) = _playBackService!.GetTimeProgress();
+                            WriteTimeProgressPayload(curMs, totalMs, sequenceId);
+                            break;
+                        }
+                    case CommandId.ChangePosition:
+                        {
+                            var req = BinarySerializer.ReadChangePositionRequest(payload);
+                            _playBackService!.ChangeWaveChannelTime(req.PositionMs);
+                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
+                            break;
+                        }
+                    case CommandId.ChangeVolume:
+                        {
+                            var req = BinarySerializer.ReadChangeVolumeRequest(payload);
+                            _playBackService!.SetVolume(req.Volume);
+                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
+                            break;
+                        }
+                    case CommandId.MusicEnd:
+                        _playBackService!.MusicEnd();
+                        WriteEmptyResponse(MessageTypeId.Success, sequenceId);
+                        break;
+                    case CommandId.FadeOut:
+                        _playBackService!.FadeOut();
+                        WriteEmptyResponse(MessageTypeId.Success, sequenceId);
+                        break;
+                    case CommandId.UpdateSettings:
+                        {
+                            var settings = BinarySerializer.ReadIpcSetting(payload);
+                            _playBackService!.UpdateSettings(settings);
+                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
+                            break;
+                        }
+                    case CommandId.ToggleEqualizer:
+                        _playBackService!.ToggleEqualizer();
+                        WriteEmptyResponse(MessageTypeId.Success, sequenceId);
+                        break;
+                    case CommandId.SetEqualizer:
+                        _playBackService!.SetEqualizer();
+                        WriteEmptyResponse(MessageTypeId.Success, sequenceId);
+                        break;
+                    case CommandId.ClearEqualizer:
+                        _playBackService!.ClearEqualizer();
+                        WriteEmptyResponse(MessageTypeId.Success, sequenceId);
+                        break;
+                    case CommandId.SetEqualizerGain:
+                        {
+                            var req = BinarySerializer.ReadSetEqualizerGainRequest(payload);
+                            _playBackService!.SetEqualizerGain(req.BandIndex, req.Gain);
+                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
+                            break;
+                        }
+                    case CommandId.UpdateEq:
+                        {
+                            var req = BinarySerializer.ReadUpdateEqRequest(payload);
+                            _playBackService!.UpdateEqualizer(req);
+                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
+                            break;
+                        }
+                    case CommandId.GetWasapiDevices:
+                        HandleGetDevices(MessageTypeId.WasapiDevices, ref _cachedWasapiDevices,
+                            () => _playBackService!.GetWasapiDevices(), payload, sequenceId);
+                        break;
+                    case CommandId.GetAsioDevices:
+                        HandleGetDevices(MessageTypeId.AsioDevices, ref _cachedAsioDevices,
+                            () => _playBackService!.GetAsioDevices(), payload, sequenceId);
+                        break;
+                    default:
+                        WriteErrorResponse(ErrorCode.InvalidCommand, sequenceId);
+                        break;
                 }
+            }
+            catch (Exception)
+            {
+                WriteErrorResponse(ErrorCode.Unknown, sequenceId);
+            }
+            SignalResponseReady();
+        }
+
+        private void HandleGetDevices(
+            MessageTypeId typeId,
+            ref (int id, string name)[]? cache,
+            Func<(int id, string name)[]> enumerate,
+            ReadOnlySpan<byte> payload,
+            byte sequenceId)
+        {
+            var req = BinarySerializer.ReadGetDevicesRequest(payload);
+            cache ??= enumerate();
+            var devices = cache;
+
+            int total = devices.Length;
+            int perPage = MaxDevicesPerResponse();
+            int totalPages = total == 0 ? 1 : (total + perPage - 1) / perPage;
+            if (req.Page >= totalPages) req.Page = 0;
+
+            int start = req.Page * perPage;
+            int end = Math.Min(start + perPage, total);
+            int count = end - start;
+
+            int maxResp = SharedMemoryData.MaxResponseSize - IpcConstants.EnvelopeHeaderSize;
+            Span<byte> buf = stackalloc byte[maxResp];
+            int offset = BinarySerializer.WriteDeviceListPageHeader(buf, req.Page, (byte)totalPages, (byte)count);
+            for (int i = start; i < end; i++)
+            {
+                var span = buf[offset..];
+                offset += BinarySerializer.WriteDeviceEntry(span, devices[i].id, devices[i].name);
+            }
+            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, typeId, sequenceId, buf[..offset], SharedMemoryData.MaxResponseSize);
+        }
+
+        private static int MaxDevicesPerResponse()
+        {
+            int maxPayload = SharedMemoryData.MaxResponseSize - IpcConstants.EnvelopeHeaderSize;
+            int perEntry = BinarySerializer.MaxDeviceEntrySize(64); // assume max 64-byte names
+            int afterHeader = maxPayload - BinarySerializer.DeviceListPageHeaderSize;
+            return Math.Max(1, afterHeader / perEntry);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void WriteErrorResponse(ErrorCode code, byte sequenceId)
+        {
+            Span<byte> buf = stackalloc byte[BinarySerializer.FailedResponseSize];
+            var resp = new FailedResponse { Code = code };
+            BinarySerializer.WriteFailedResponse(buf, resp);
+            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, MessageTypeId.Failed, sequenceId, buf, SharedMemoryData.MaxResponseSize);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void WriteEmptyResponse(MessageTypeId typeId, byte sequenceId)
+        {
+            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, typeId, sequenceId, ReadOnlySpan<byte>.Empty, SharedMemoryData.MaxResponseSize);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void WriteTimeProgressPayload(long currentMs, long totalMs, byte sequenceId)
+        {
+            Span<byte> buf = stackalloc byte[BinarySerializer.TimeProgressSize];
+            BinarySerializer.WriteTimeProgress(buf, currentMs, totalMs);
+            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, MessageTypeId.TimeProgress, sequenceId, buf, SharedMemoryData.MaxResponseSize);
+        }
+
+        private void SignalResponseReady()
+        {
+            try { _responseReadySemaphore!.Release(); }
+            catch (SemaphoreFullException) { }
+        }
+
+        public void SendNotification(MessageTypeId typeId, scoped ReadOnlySpan<byte> payload)
+        {
+            if (_accessor == null) return;
+            try
+            {
+                Interlocked.Increment(ref _notificationSlot);
+                long offset = NotificationBufferOffset;
+                IpcEnvelope.WriteResponse(_accessor, offset, typeId, 0, payload, SharedMemoryData.MaxResponseSize);
+                try { _notificationReadySemaphore!.Release(); }
                 catch (SemaphoreFullException)
                 {
-                    Console.WriteLine("Warning: Previous notification not processed by client yet.");
+                    Interlocked.Increment(ref _notificationSlot);
+                    IpcEnvelope.WriteResponse(_accessor, offset, MessageTypeId.NotificationDropped, 0, ReadOnlySpan<byte>.Empty, SharedMemoryData.MaxResponseSize);
+                    try { _notificationReadySemaphore!.Release(); } catch { }
                 }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error sending notification: {ex.Message}");
-            }
+            catch { }
         }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        // 直接读取到提供的缓冲区，返回实际长度
-        private int ReadFromSharedMemoryToBuffer(long offset, byte[] buffer)
-        {
-            try
-            {
-                int length = _accessor.ReadInt32(offset);
-
-                if (length <= 0 || length > buffer.Length)
-                {
-                    return 0;
-                }
-
-                _accessor.ReadArray(offset + sizeof(int), buffer, 0, length);
-                return length;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error reading from MMF: {ex.Message}");
-                return 0;
-            }
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        // 直接从ResponseMessage序列化到共享内存，避免中间string
-        private void WriteResponseToSharedMemory(long offset, ResponseMessage response)
-        {
-            try
-            {
-                // 重置writer以复用
-                _jsonBufferWriter.Clear();
-
-                // 直接序列化到ArrayBufferWriter
-                using (var writer = new Utf8JsonWriter(_jsonBufferWriter, new JsonWriterOptions { SkipValidation = true }))
-                {
-                    JsonSerializer.Serialize(writer, response, PlayerJsonContext.Default.ResponseMessage);
-                }
-
-                ReadOnlySpan<byte> jsonBytes = _jsonBufferWriter.WrittenSpan;
-                int length = jsonBytes.Length;
-
-                // 检查大小限制
-                int maxSize = (offset == NotificationBufferOffset)
-                    ? SharedMemoryData.MaxResponseSize - sizeof(int)
-                    : SharedMemoryData.MaxMessageSize - sizeof(int);
-
-                if (length > maxSize)
-                {
-                    length = maxSize;
-                    Console.WriteLine("Warning: Message truncated due to size limit.");
-                }
-
-                // 写入长度
-                _accessor.Write(offset, length);
-
-                // 使用WriteArray批量写入，避免逐字节循环
-                byte[] tempArray = ArrayPool<byte>.Shared.Rent(length);
-                try
-                {
-                    jsonBytes.Slice(0, length).CopyTo(tempArray);
-                    _accessor.WriteArray(offset + sizeof(int), tempArray, 0, length);
-                }
-                finally
-                {
-                    ArrayPool<byte>.Shared.Return(tempArray);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error writing to MMF: {ex.Message}");
-            }
-        }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private ResponseMessage ExecuteCommand(RequestMessage request)
-        {
-            Console.WriteLine($"Executing command: {request.Command}");
-            try
-            {
-                //使用ReadOnlySpan<char>比较，避免string分配
-                ReadOnlySpan<char> cmd = request.Command.AsSpan();
-
-                if (cmd.SequenceEqual("Play"))
-                {
-                    playBackService.PlayMusic(request.Data);
-                    _cachedResponse.Type = MessageType.Success;
-                    _cachedResponse.Message = "Started playing";
-                    _cachedResponse.Result = "Playback_Started";
-                    return _cachedResponse;
-                }
-                else if (cmd.SequenceEqual("PlayButton"))
-                {
-                    playBackService.PlayButton();
-                    _cachedResponse.Type = MessageType.Success;
-                    _cachedResponse.Message = "Play button pressed.";
-                    _cachedResponse.Result = "Playback_Started";
-                    return _cachedResponse;
-                }
-                else if (cmd.SequenceEqual("SetMusicUrl"))
-                {
-                    playBackService.MusicUrl = request.Data;
-                    _cachedResponse.Type = MessageType.Success;
-                    _cachedResponse.Message = "Music URL set";
-                    _cachedResponse.Result = "MusicUrl_Set";
-                    return _cachedResponse;
-                }
-                else if (cmd.SequenceEqual("Volume"))
-                {
-                    //使用Span解析，避免Parse的装箱
-                    if (int.TryParse(request.Data.AsSpan(), out int volume))
-                    {
-                        playBackService.SetVolume(volume);
-                    }
-                    _cachedResponse.Type = MessageType.Success;
-                    _cachedResponse.Message = "Volume set.";
-                    _cachedResponse.Result = "Volume_Set";
-                    return _cachedResponse;
-                }
-                else if (cmd.SequenceEqual("GetProgress"))
-                {
-                    var progress = playBackService.GetCurrentPosition();
-                    _cachedResponse.Type = MessageType.CurrentTime;
-                    _cachedResponse.Message = "Current progress retrieved.";
-                    _cachedResponse.Result = progress.ToString("F6");
-                    return _cachedResponse;
-                }
-                else if (cmd.SequenceEqual("GetDuration"))
-                {
-                    var duration = playBackService.GetTotalPosition();
-                    _cachedResponse.Type = MessageType.TotalTime;
-                    _cachedResponse.Message = "Track duration retrieved.";
-                    _cachedResponse.Result = duration.ToString("F6");
-                    return _cachedResponse;
-                }
-                else if (cmd.SequenceEqual("ChangePosition"))
-                {
-                    if (double.TryParse(request.Data.AsSpan(), out double seconds))
-                    {
-                        playBackService.ChangeWaveChannelTime(TimeSpan.FromSeconds(seconds));
-                    }
-                    _cachedResponse.Type = MessageType.Success;
-                    _cachedResponse.Message = "Playback position changed.";
-                    _cachedResponse.Result = "Position_Changed";
-                    return _cachedResponse;
-                }
-                else if (cmd.SequenceEqual("ChangeVolume"))
-                {
-                    if (double.TryParse(request.Data.AsSpan(), out double vol))
-                    {
-                        playBackService.SetVolume(vol);
-                    }
-                    _cachedResponse.Type = MessageType.Success;
-                    _cachedResponse.Message = "Volume changed.";
-                    _cachedResponse.Result = "Volume_Changed";
-                    return _cachedResponse;
-                }
-                else if (cmd.SequenceEqual("UpdateSettings"))
-                {
-                    playBackService.UpdateSettings(request.Data);
-                    _cachedResponse.Type = MessageType.Success;
-                    _cachedResponse.Message = "Settings updated.";
-                    _cachedResponse.Result = "Settings_Updated";
-                    return _cachedResponse;
-                }
-                else if (cmd.SequenceEqual("AdjustPlaybackPosition"))
-                {
-                    if (int.TryParse(request.Data.AsSpan(), out int adjust))
-                    {
-                        var newpos = playBackService.AdjustPlaybackPosition(adjust);
-                        _cachedResponse.Type = MessageType.PositionAdjusted;
-                        _cachedResponse.Message = "PlaybackPosition Adjusted.";
-                        _cachedResponse.Result = newpos.ToString("F6");
-                        return _cachedResponse;
-                    }
-                }
-                else if (cmd.SequenceEqual("MusicEnd"))
-                {
-                    playBackService.MusicEnd();
-                    _cachedResponse.Type = MessageType.Success;
-                    _cachedResponse.Message = "MusicEnded";
-                    _cachedResponse.Result = "MusicEnded";
-                    return _cachedResponse;
-                }
-                else if (cmd.SequenceEqual("Dispose"))
-                {
-                    playBackService.Dispose();
-                    _cachedResponse.Type = MessageType.Exit;
-                    _cachedResponse.Message = "Dispose";
-                    _cachedResponse.Result = "Dispose";
-                    return _cachedResponse;
-                }
-                else if (cmd.SequenceEqual("ToggleEqualizer"))
-                {
-                    playBackService.ToggleEqualizer();
-                    _cachedResponse.Type = MessageType.Success;
-                    _cachedResponse.Message = "Toggled Eq";
-                    _cachedResponse.Result = "Toggled_Eq";
-                    return _cachedResponse;
-                }
-                else if (cmd.SequenceEqual("SetEqualizer"))
-                {
-                    playBackService.SetEqualizer();
-                    _cachedResponse.Type = MessageType.Success;
-                    _cachedResponse.Message = "Eq Setted";
-                    _cachedResponse.Result = "Eq_Setted";
-                    return _cachedResponse;
-                }
-                else if (cmd.SequenceEqual("ClearEqualizer"))
-                {
-                    playBackService.ClearEqualizer();
-                    _cachedResponse.Type = MessageType.Success;
-                    _cachedResponse.Message = "Eq Cleared";
-                    _cachedResponse.Result = "Eq_Cleared";
-                    return _cachedResponse;
-                }
-                else if (cmd.SequenceEqual("SetEqualizerGain"))
-                {
-                    var eqGain = JsonSerializer.Deserialize(request.Data, IpcEqualizerGainJsonContext.Default.IpcEqualizerGain);
-                    playBackService.SetEqualizerGain(eqGain.bandIndex, eqGain.gain);
-                    _cachedResponse.Type = MessageType.Success;
-                    _cachedResponse.Message = "EqGain Setted";
-                    _cachedResponse.Result = "EqGain_Setted";
-                    return _cachedResponse;
-                }
-                else if (cmd.SequenceEqual("UpdateEq"))
-                {
-                    playBackService.UpdateEqualizerFromJson(request.Data);
-                    _cachedResponse.Type = MessageType.Success;
-                    _cachedResponse.Message = "Eq Updated";
-                    _cachedResponse.Result = "Eq_Updated";
-                    return _cachedResponse;
-                } else if (cmd.SequenceEqual("FadeOut"))
-                {
-                    playBackService.FadeOut();
-                    _cachedResponse.Type = MessageType.Success;
-                    _cachedResponse.Message = "Fade Out";
-                    _cachedResponse.Result = "Fade_Out";
-                    return _cachedResponse;
-                }
-
-                _cachedResponse.Type = MessageType.Failed;
-                _cachedResponse.Message = "Unknown command";
-                _cachedResponse.Result = "Error_UnknownCommand";
-                return _cachedResponse;
-            }
-            catch (Exception ex)
-            {
-                _cachedResponse.Type = MessageType.Failed;
-                _cachedResponse.Message = $"Error during command execution: {ex.Message}";
-                _cachedResponse.Result = "Error_Execution";
-                return _cachedResponse;
-            }
-        }
-
         public void PlayStateUpdate(bool isPlaying)
         {
-            _cachedNotification.Type = MessageType.PlayState;
-            _cachedNotification.Message = "PlayStateUpdate";
-            _cachedNotification.Result = isPlaying ? "True" : "False";
-            SendNotification(_cachedNotification);
+            Span<byte> buf = stackalloc byte[BinarySerializer.PlayStateResponseSize];
+            var resp = new PlayStateResponse { IsPlaying = isPlaying };
+            BinarySerializer.WritePlayStateResponse(buf, resp);
+            SendNotification(MessageTypeId.PlayState, buf);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void VolumeWriteBack(float volume)
         {
-            _cachedNotification.Type = MessageType.VolumeWriteBack;
-            _cachedNotification.Message = "VolumeWriteBack";
-            _cachedNotification.Result = volume.ToString();
-            SendNotification(_cachedNotification);
+            Span<byte> buf = stackalloc byte[BinarySerializer.VolumeResponseSize];
+            var resp = new VolumeResponse { Volume = volume };
+            BinarySerializer.WriteVolumeResponse(buf, resp);
+            SendNotification(MessageTypeId.VolumeWriteBack, buf);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void PlayBackEnded(bool isPlaying)
         {
-            _cachedNotification.Type = MessageType.PlayEnded;
-            _cachedNotification.Message = "PlayBackEnded";
-            _cachedNotification.Result = isPlaying ? "True" : "False";
-            SendNotification(_cachedNotification);
+            SendNotification(MessageTypeId.PlayEnded, ReadOnlySpan<byte>.Empty);
         }
 
         public void Dispose()
         {
-            playBackService?.Dispose();
+            _playBackService?.Dispose();
             _cancellationTokenSource?.Cancel();
             _accessor?.Dispose();
             _mmf?.Dispose();
