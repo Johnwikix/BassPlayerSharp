@@ -1,41 +1,14 @@
 ﻿using BassPlayerIpc.Shared;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 
 namespace BassPlayerSharp.Service
 {
-    [StructLayout(LayoutKind.Sequential)]
-    public struct SharedMemoryData
-    {
-        public const int MaxMessageSize = 2048;
-        public const int MaxResponseSize = 512;
-
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = MaxMessageSize)]
-        public byte[] RequestBuffer;
-
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = MaxResponseSize)]
-        public byte[] ResponseBuffer;
-
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = MaxResponseSize)]
-        public byte[] NotificationBuffer;
-
-        public SharedMemoryData()
-        {
-            RequestBuffer = new byte[MaxMessageSize];
-            ResponseBuffer = new byte[MaxResponseSize];
-            NotificationBuffer = new byte[MaxResponseSize];
-        }
-    }
-
     public class MmpIpcService : IDisposable
     {
         private PlayBackService? _playBackService;
 
-        private static readonly long MmfSize = SharedMemoryData.MaxMessageSize + SharedMemoryData.MaxResponseSize * 2;
-        private const long RequestBufferOffset = 0;
-        private static readonly long ResponseBufferOffset = SharedMemoryData.MaxMessageSize;
-        private static readonly long NotificationBufferOffset = SharedMemoryData.MaxMessageSize + SharedMemoryData.MaxResponseSize;
+        private static readonly long MmfSize = IpcConstants.MmfSize;
 
         private MemoryMappedFile? _mmf;
         private MemoryMappedViewAccessor? _accessor;
@@ -49,7 +22,14 @@ namespace BassPlayerSharp.Service
         private Task? _clientMonitorTask;
 
         private readonly byte[] _requestBuffer;
-        private int _notificationSlot;
+        private readonly object _notificationLock = new();
+
+        // Versioned mailbox state: the shared-memory version ints are the source of
+        // truth; the semaphores are only wakeup hints, so a lost/spurious signal can
+        // never desynchronize the protocol.
+        private int _lastRequestVersion;
+        private int _responseVersion;
+        private int _notificationVersion;
 
         // Device paging cache: first request enumerates, subsequent pages come from cache.
         private (int id, string name)[]? _cachedWasapiDevices;
@@ -59,7 +39,7 @@ namespace BassPlayerSharp.Service
         {
             CheckSingleInstance();
             _cancellationTokenSource = new CancellationTokenSource();
-            _requestBuffer = new byte[SharedMemoryData.MaxMessageSize];
+            _requestBuffer = new byte[IpcConstants.MaxRequestSize];
         }
 
         private static void CheckSingleInstance()
@@ -163,17 +143,24 @@ namespace BassPlayerSharp.Service
             {
                 try
                 {
-                    await Task.Run(() => _requestReadySemaphore!.WaitOne(), cancellationToken);
+                    // The semaphore is a wakeup hint only; the version check below is
+                    // authoritative, so the short timeout also recovers signals that
+                    // were swallowed by a full semaphore.
+                    await Task.Run(() => _requestReadySemaphore!.WaitOne(500), cancellationToken);
                     if (cancellationToken.IsCancellationRequested) break;
 
                     if (_accessor == null) continue;
 
-                    byte sequenceId = IpcEnvelope.ReadSequenceId(_accessor, RequestBufferOffset);
+                    int version = IpcEnvelope.ReadVersion(_accessor, IpcConstants.RequestVersionOffset);
+                    if (version == _lastRequestVersion) continue;
+                    _lastRequestVersion = version;
+
+                    byte sequenceId = IpcEnvelope.ReadSequenceId(_accessor, IpcConstants.RequestBufferOffset);
 
                     int payloadLen = IpcEnvelope.ReadPayload(
-                        _accessor, RequestBufferOffset,
+                        _accessor, IpcConstants.RequestBufferOffset,
                         _requestBuffer,
-                        SharedMemoryData.MaxMessageSize - IpcConstants.EnvelopeHeaderSize);
+                        IpcConstants.MaxRequestSize - IpcConstants.EnvelopeHeaderSize);
 
                     if (payloadLen < 0)
                     {
@@ -182,7 +169,7 @@ namespace BassPlayerSharp.Service
                         continue;
                     }
 
-                    var commandId = IpcEnvelope.ReadCommandId(_accessor, RequestBufferOffset);
+                    var commandId = IpcEnvelope.ReadCommandId(_accessor, IpcConstants.RequestBufferOffset);
                     HandleCommand(commandId, _requestBuffer.AsSpan(0, payloadLen), sequenceId);
                 }
                 catch (OperationCanceledException) { break; }
@@ -315,7 +302,7 @@ namespace BassPlayerSharp.Service
             int end = Math.Min(start + perPage, total);
             int count = end - start;
 
-            int maxResp = SharedMemoryData.MaxResponseSize - IpcConstants.EnvelopeHeaderSize;
+            int maxResp = IpcConstants.MaxResponseSize - IpcConstants.EnvelopeHeaderSize;
             Span<byte> buf = stackalloc byte[maxResp];
             int offset = BinarySerializer.WriteDeviceListPageHeader(buf, req.Page, (byte)totalPages, (byte)count);
             for (int i = start; i < end; i++)
@@ -323,12 +310,12 @@ namespace BassPlayerSharp.Service
                 var span = buf[offset..];
                 offset += BinarySerializer.WriteDeviceEntry(span, devices[i].id, devices[i].name);
             }
-            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, typeId, sequenceId, buf[..offset], SharedMemoryData.MaxResponseSize);
+            IpcEnvelope.WriteResponse(_accessor!, IpcConstants.ResponseBufferOffset, typeId, sequenceId, buf[..offset], IpcConstants.MaxResponseSize);
         }
 
         private static int MaxDevicesPerResponse()
         {
-            int maxPayload = SharedMemoryData.MaxResponseSize - IpcConstants.EnvelopeHeaderSize;
+            int maxPayload = IpcConstants.MaxResponseSize - IpcConstants.EnvelopeHeaderSize;
             int perEntry = BinarySerializer.MaxDeviceEntrySize(64); // assume max 64-byte names
             int afterHeader = maxPayload - BinarySerializer.DeviceListPageHeaderSize;
             return Math.Max(1, afterHeader / perEntry);
@@ -340,13 +327,13 @@ namespace BassPlayerSharp.Service
             Span<byte> buf = stackalloc byte[BinarySerializer.FailedResponseSize];
             var resp = new FailedResponse { Code = code };
             BinarySerializer.WriteFailedResponse(buf, resp);
-            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, MessageTypeId.Failed, sequenceId, buf, SharedMemoryData.MaxResponseSize);
+            IpcEnvelope.WriteResponse(_accessor!, IpcConstants.ResponseBufferOffset, MessageTypeId.Failed, sequenceId, buf, IpcConstants.MaxResponseSize);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void WriteEmptyResponse(MessageTypeId typeId, byte sequenceId)
         {
-            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, typeId, sequenceId, ReadOnlySpan<byte>.Empty, SharedMemoryData.MaxResponseSize);
+            IpcEnvelope.WriteResponse(_accessor!, IpcConstants.ResponseBufferOffset, typeId, sequenceId, ReadOnlySpan<byte>.Empty, IpcConstants.MaxResponseSize);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -354,11 +341,14 @@ namespace BassPlayerSharp.Service
         {
             Span<byte> buf = stackalloc byte[BinarySerializer.TimeProgressSize];
             BinarySerializer.WriteTimeProgress(buf, currentMs, totalMs);
-            IpcEnvelope.WriteResponse(_accessor!, ResponseBufferOffset, MessageTypeId.TimeProgress, sequenceId, buf, SharedMemoryData.MaxResponseSize);
+            IpcEnvelope.WriteResponse(_accessor!, IpcConstants.ResponseBufferOffset, MessageTypeId.TimeProgress, sequenceId, buf, IpcConstants.MaxResponseSize);
         }
 
         private void SignalResponseReady()
         {
+            if (_accessor == null) return;
+            int version = ++_responseVersion;
+            IpcEnvelope.PublishVersion(_accessor, IpcConstants.ResponseVersionOffset, version);
             try { _responseReadySemaphore!.Release(); }
             catch (SemaphoreFullException) { }
         }
@@ -368,15 +358,14 @@ namespace BassPlayerSharp.Service
             if (_accessor == null) return;
             try
             {
-                Interlocked.Increment(ref _notificationSlot);
-                long offset = NotificationBufferOffset;
-                IpcEnvelope.WriteResponse(_accessor, offset, typeId, 0, payload, SharedMemoryData.MaxResponseSize);
-                try { _notificationReadySemaphore!.Release(); }
-                catch (SemaphoreFullException)
+                lock (_notificationLock)
                 {
-                    Interlocked.Increment(ref _notificationSlot);
-                    IpcEnvelope.WriteResponse(_accessor, offset, MessageTypeId.NotificationDropped, 0, ReadOnlySpan<byte>.Empty, SharedMemoryData.MaxResponseSize);
-                    try { _notificationReadySemaphore!.Release(); } catch { }
+                    int version = ++_notificationVersion;
+                    long offset = IpcEnvelope.NotificationSlotOffset(version);
+                    IpcEnvelope.WriteResponse(_accessor, offset, typeId, 0, payload, IpcConstants.MaxNotificationSize);
+                    IpcEnvelope.PublishVersion(_accessor, IpcConstants.NotificationVersionOffset, version);
+                    try { _notificationReadySemaphore!.Release(); }
+                    catch (SemaphoreFullException) { }
                 }
             }
             catch { }
