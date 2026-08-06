@@ -35,6 +35,10 @@ namespace BassPlayerSharp.Service
         private (int id, string name)[]? _cachedWasapiDevices;
         private (int id, string name)[]? _cachedAsioDevices;
 
+        // Held for the process lifetime: keeps the single-instance mutex owned, and
+        // lets the client detect this process exiting (abandoned mutex).
+        private static Mutex? _instanceMutex;
+
         public MmpIpcService()
         {
             CheckSingleInstance();
@@ -44,7 +48,7 @@ namespace BassPlayerSharp.Service
 
         private static void CheckSingleInstance()
         {
-            _ = new Mutex(true, IpcConstants.MutexName, out bool mutexCreated);
+            _instanceMutex = new Mutex(true, IpcConstants.MutexName, out bool mutexCreated);
             if (!mutexCreated)
             {
                 Environment.Exit(0);
@@ -96,7 +100,9 @@ namespace BassPlayerSharp.Service
             }
             if (clientMutex == null)
             {
-                Console.WriteLine("Warning: Client mutex not found within timeout.");
+                // No client appeared within the timeout - nothing to serve, so exit.
+                Console.WriteLine("Warning: Client mutex not found within timeout. Shutting down.");
+                Stop();
                 return;
             }
             try
@@ -173,12 +179,26 @@ namespace BassPlayerSharp.Service
                     HandleCommand(commandId, _requestBuffer.AsSpan(0, payloadLen), sequenceId);
                 }
                 catch (OperationCanceledException) { break; }
-                catch (Exception) { await Task.Delay(500, cancellationToken); }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Request loop error: {ex.Message}");
+                    try { await Task.Delay(500, cancellationToken); }
+                    catch (OperationCanceledException) { break; }
+                }
             }
+        }
+
+        // Commands that produce no response: the client sends them fire-and-forget,
+        // their state changes are reported back via notifications.
+        private static bool IsSendOnlyCommand(CommandId commandId)
+        {
+            return commandId is CommandId.Play or CommandId.ChangePosition or CommandId.ChangeVolume
+                or CommandId.MusicEnd or CommandId.FadeOut or CommandId.UpdateSettings;
         }
 
         private void HandleCommand(CommandId commandId, ReadOnlySpan<byte> payload, byte sequenceId)
         {
+            bool sendOnly = IsSendOnlyCommand(commandId);
             try
             {
                 switch (commandId)
@@ -187,12 +207,11 @@ namespace BassPlayerSharp.Service
                         {
                             var req = BinarySerializer.ReadPlayRequest(payload);
                             _playBackService!.PlayMusic(req.Url ?? string.Empty);
-                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                             break;
                         }
                     case CommandId.PlayButton:
                         _playBackService!.PlayButton();
-                        WriteEmptyResponse(MessageTypeId.Success, sequenceId);
+                        WritePlayStateResponsePayload(_playBackService.IsPlaying, sequenceId);
                         break;
                     case CommandId.SetMusicUrl:
                         {
@@ -211,55 +230,31 @@ namespace BassPlayerSharp.Service
                         {
                             var req = BinarySerializer.ReadChangePositionRequest(payload);
                             _playBackService!.ChangeWaveChannelTime(req.PositionMs);
-                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                             break;
                         }
                     case CommandId.ChangeVolume:
                         {
                             var req = BinarySerializer.ReadChangeVolumeRequest(payload);
                             _playBackService!.SetVolume(req.Volume);
-                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                             break;
                         }
                     case CommandId.MusicEnd:
                         _playBackService!.MusicEnd();
-                        WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                         break;
                     case CommandId.FadeOut:
                         _playBackService!.FadeOut();
-                        WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                         break;
                     case CommandId.UpdateSettings:
                         {
                             var settings = BinarySerializer.ReadIpcSetting(payload);
                             _playBackService!.UpdateSettings(settings);
-                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
-                            break;
-                        }
-                    case CommandId.ToggleEqualizer:
-                        _playBackService!.ToggleEqualizer();
-                        WriteEmptyResponse(MessageTypeId.Success, sequenceId);
-                        break;
-                    case CommandId.SetEqualizer:
-                        _playBackService!.SetEqualizer();
-                        WriteEmptyResponse(MessageTypeId.Success, sequenceId);
-                        break;
-                    case CommandId.ClearEqualizer:
-                        _playBackService!.ClearEqualizer();
-                        WriteEmptyResponse(MessageTypeId.Success, sequenceId);
-                        break;
-                    case CommandId.SetEqualizerGain:
-                        {
-                            var req = BinarySerializer.ReadSetEqualizerGainRequest(payload);
-                            _playBackService!.SetEqualizerGain(req.BandIndex, req.Gain);
-                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
                             break;
                         }
                     case CommandId.UpdateEq:
                         {
                             var req = BinarySerializer.ReadUpdateEqRequest(payload);
-                            _playBackService!.UpdateEqualizer(req);
-                            WriteEmptyResponse(MessageTypeId.Success, sequenceId);
+                            var resp = _playBackService!.SetEqualizerState(req);
+                            WriteEqStateResponsePayload(resp, sequenceId);
                             break;
                         }
                     case CommandId.GetWasapiDevices:
@@ -271,15 +266,16 @@ namespace BassPlayerSharp.Service
                             () => _playBackService!.GetAsioDevices(), payload, sequenceId);
                         break;
                     default:
-                        WriteErrorResponse(ErrorCode.InvalidCommand, sequenceId);
+                        if (!sendOnly) WriteErrorResponse(ErrorCode.InvalidCommand, sequenceId);
                         break;
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                WriteErrorResponse(ErrorCode.Unknown, sequenceId);
+                if (sendOnly) Console.WriteLine($"Command {commandId} failed: {ex.Message}");
+                else WriteErrorResponse(ErrorCode.Unknown, sequenceId);
             }
-            SignalResponseReady();
+            if (!sendOnly) SignalResponseReady();
         }
 
         private void HandleGetDevices(
@@ -344,6 +340,23 @@ namespace BassPlayerSharp.Service
             IpcEnvelope.WriteResponse(_accessor!, IpcConstants.ResponseBufferOffset, MessageTypeId.TimeProgress, sequenceId, buf, IpcConstants.MaxResponseSize);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void WritePlayStateResponsePayload(bool isPlaying, byte sequenceId)
+        {
+            Span<byte> buf = stackalloc byte[BinarySerializer.PlayStateResponseSize];
+            var resp = new PlayStateResponse { IsPlaying = isPlaying };
+            BinarySerializer.WritePlayStateResponse(buf, resp);
+            IpcEnvelope.WriteResponse(_accessor!, IpcConstants.ResponseBufferOffset, MessageTypeId.PlayState, sequenceId, buf, IpcConstants.MaxResponseSize);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void WriteEqStateResponsePayload(EqStateResponse resp, byte sequenceId)
+        {
+            Span<byte> buf = stackalloc byte[BinarySerializer.EqStateResponseSize];
+            BinarySerializer.WriteEqStateResponse(buf, resp);
+            IpcEnvelope.WriteResponse(_accessor!, IpcConstants.ResponseBufferOffset, MessageTypeId.EqState, sequenceId, buf, IpcConstants.MaxResponseSize);
+        }
+
         private void SignalResponseReady()
         {
             if (_accessor == null) return;
@@ -368,7 +381,10 @@ namespace BassPlayerSharp.Service
                     catch (SemaphoreFullException) { }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"SendNotification failed: {ex.Message}");
+            }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

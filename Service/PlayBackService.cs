@@ -49,6 +49,7 @@ namespace BassPlayerSharp.Service
         private float _startVolume;
         private float _targetVolume;
         private bool _isFading;
+        private volatile bool _stopOnFadeComplete;
 
         private static readonly string DsfExtension = ".dsf";
         private static readonly string DffExtension = ".dff";
@@ -116,13 +117,23 @@ namespace BassPlayerSharp.Service
                 _fadeTimer!.Change(Timeout.Infinite, Timeout.Infinite);
                 _isFading = false;
             }
+            _stopOnFadeComplete = false;
         }
 
         private void OnFadeTimer(object? state)
         {
             try
             {
-                if (!_isFading || _currentStep > _totalSteps) { StopFade(); return; }
+                if (!_isFading || _currentStep > _totalSteps)
+                {
+                    if (_stopOnFadeComplete)
+                    {
+                        _stopOnFadeComplete = false;
+                        if (_currentStream != 0) Bass.ChannelStop(_currentStream);
+                    }
+                    StopFade();
+                    return;
+                }
                 _volumeStep = (float)_currentStep / _totalSteps;
                 _curve = _targetVolume > _startVolume
                     ? _volumeStep * _volumeStep
@@ -132,7 +143,15 @@ namespace BassPlayerSharp.Service
                 if (vol > 1f) vol = 1f;
                 Bass.ChannelSetAttribute(_currentStream, ChannelAttribute.Volume, vol);
                 _currentStep++;
-                if (_currentStep > _totalSteps) StopFade();
+                if (_currentStep > _totalSteps)
+                {
+                    if (_stopOnFadeComplete)
+                    {
+                        _stopOnFadeComplete = false;
+                        if (_currentStream != 0) Bass.ChannelStop(_currentStream);
+                    }
+                    StopFade();
+                }
             }
             catch { StopFade(); }
         }
@@ -186,25 +205,59 @@ namespace BassPlayerSharp.Service
             catch { }
         }
 
-        public void UpdateEqualizer(UpdateEqRequest eq)
+        /// <summary>
+        /// Applies the full equalizer state (enabled flag + all band gains) idempotently.
+        /// Returns the real applied state: IsEnabled reflects whether the EQ was actually
+        /// accepted (e.g. DSD+exclusive modes reject it), IsActive whether a PeakEQ is
+        /// currently attached to a stream (it is created lazily on playback).
+        /// </summary>
+        public EqStateResponse SetEqualizerState(UpdateEqRequest req)
         {
-            EqGains[0] = eq.Band0;
-            EqGains[1] = eq.Band1;
-            EqGains[2] = eq.Band2;
-            EqGains[3] = eq.Band3;
-            EqGains[4] = eq.Band4;
-            EqGains[5] = eq.Band5;
-            EqGains[6] = eq.Band6;
-            EqGains[7] = eq.Band7;
-            EqGains[8] = eq.Band8;
-            EqGains[9] = eq.Band9;
+            EqGains[0] = req.Band0;
+            EqGains[1] = req.Band1;
+            EqGains[2] = req.Band2;
+            EqGains[3] = req.Band3;
+            EqGains[4] = req.Band4;
+            EqGains[5] = req.Band5;
+            EqGains[6] = req.Band6;
+            EqGains[7] = req.Band7;
+            EqGains[8] = req.Band8;
+            EqGains[9] = req.Band9;
+
+            if (req.IsEnabled != IsEqualizerEnabled)
+            {
+                IsEqualizerEnabled = req.IsEnabled;
+                if (req.IsEnabled)
+                {
+                    if (!ToggleEqualizer()) IsEqualizerEnabled = false;
+                }
+                else
+                {
+                    ClearEqualizer();
+                }
+            }
+            else if (req.IsEnabled && _peakEQ == null)
+            {
+                // Flag already set but no instance (e.g. playback just started): try
+                // to (re)create; reject if the output mode refuses the EQ.
+                if (!ToggleEqualizer()) IsEqualizerEnabled = false;
+            }
+
+            if (IsEqualizerEnabled && _peakEQ != null) SetEqualizer();
+            return new EqStateResponse { IsEnabled = IsEqualizerEnabled, IsActive = _peakEQ != null };
         }
 
-        public void ToggleEqualizer()
+        /// <summary>
+        /// Creates the PeakEQ instance for the current stream. Returns false when the
+        /// equalizer is disabled or the output mode rejects it (DSD over exclusive
+        /// output); when no stream is loaded yet it returns true and the EQ is created
+        /// lazily by <see cref="Play"/>.
+        /// </summary>
+        public bool ToggleEqualizer()
         {
-            if (!IsEqualizerEnabled) return;
+            if (!IsEqualizerEnabled) return false;
             if (IsDopEnabled && (OutputMode.Contains("WasapiExclusive") || OutputMode == "ASIO")
-                && IsDsdFile(MusicUrl)) return;
+                && IsDsdFile(MusicUrl)) return false;
             try
             {
                 if (_currentStream != 0)
@@ -213,26 +266,13 @@ namespace BassPlayerSharp.Service
                     for (int i = 0; i < _eqFrequencies.Length; i++)
                         _bandIndices[i] = _peakEQ.AddBand(_eqFrequencies[i]);
                 }
+                return true;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"Init EQ error: {ex.Message}");
                 _peakEQ = null;
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void SetEqualizerGain(byte bandIndex, float gain)
-        {
-            if (bandIndex >= _eqFrequencies.Length || _peakEQ == null)
-                return;
-            try
-            {
-                _peakEQ.UpdateBand(_bandIndices[bandIndex], gain);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Set EQ band error: {ex.Message}");
+                return false;
             }
         }
 
@@ -426,46 +466,52 @@ namespace BassPlayerSharp.Service
             if (_currentStream != 0) Bass.ChannelStop(_currentStream);
         }
 
-        public async void PlayButton()
+        public void PlayButton()
         {
             try
             {
-                if (IsPlaying)
+                lock (_streamLock)
                 {
-                    switch (OutputMode)
-                    {
-                        case var mode when mode.Contains("Wasapi"): BassWasapi.Stop(); break;
-                        case "ASIO": BassAsio.Stop(); break;
-                        default:
-                            if (IsFadingEnabled) { FadeOut(); await Task.Delay(550); Bass.ChannelStop(_currentStream); }
-                            else Bass.ChannelStop(_currentStream);
-                            break;
-                    }
-                    isPausing = true;
-                    IsPlaying = false;
-                }
-                else
-                {
-                    if (_currentStream != 0)
+                    if (IsPlaying)
                     {
                         switch (OutputMode)
                         {
-                            case var mode when mode.Contains("Wasapi"): BassWasapi.Start(); break;
-                            case "ASIO": BassAsio.Start(); break;
+                            case var mode when mode.Contains("Wasapi"): BassWasapi.Stop(); break;
+                            case "ASIO": BassAsio.Stop(); break;
                             default:
-                                if (IsFadingEnabled) FadeIn(volume);
-                                Bass.ChannelPlay(_currentStream, false);
+                                if (IsFadingEnabled) { FadeOut(); _stopOnFadeComplete = true; }
+                                else Bass.ChannelStop(_currentStream);
                                 break;
                         }
+                        isPausing = true;
+                        IsPlaying = false;
                     }
-                    else if (!string.IsNullOrWhiteSpace(MusicUrl))
-                        PlayMusic(MusicUrl);
-                    isPausing = false;
-                    IsPlaying = true;
+                    else
+                    {
+                        if (_currentStream != 0)
+                        {
+                            switch (OutputMode)
+                            {
+                                case var mode when mode.Contains("Wasapi"): BassWasapi.Start(); break;
+                                case "ASIO": BassAsio.Start(); break;
+                                default:
+                                    if (IsFadingEnabled) FadeIn(volume);
+                                    Bass.ChannelPlay(_currentStream, false);
+                                    break;
+                            }
+                        }
+                        else if (!string.IsNullOrWhiteSpace(MusicUrl))
+                            PlayMusic(MusicUrl);
+                        isPausing = false;
+                        IsPlaying = true;
+                    }
+                    _mmpIpcService.PlayStateUpdate(IsPlaying);
                 }
-                _mmpIpcService.PlayStateUpdate(IsPlaying);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"PlayButton error: {ex.Message}");
+            }
         }
 
         public void Play(bool isSettingChanged = false)
@@ -516,7 +562,7 @@ namespace BassPlayerSharp.Service
             IsDopEnabled = s.IsDopEnabled;
             dsdGain = s.DsdGain;
             dsdPcmFreq = s.DsdPcmFreq;
-            IsEqualizerEnabled = s.IsEqualizerEnabled;
+            // EQ enablement is owned exclusively by SetEqualizerState.
             volume = s.Volume;
             IsFadingEnabled = s.IsFadeEnabled;
             if (s.IsSettingChanged)
