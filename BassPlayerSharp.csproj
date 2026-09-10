@@ -11,6 +11,7 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <Platforms>AnyCPU;x64</Platforms>
     <ApplicationIcon>icon.ico</ApplicationIcon>
+	<VersionPrefix>1.1.0.0</VersionPrefix>
   </PropertyGroup>
   <ItemGroup>
 		<None Include="Libraries\x64\**\*">
