@@ -397,15 +397,6 @@ namespace BassPlayerSharp.Service
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void VolumeWriteBack(float volume)
-        {
-            Span<byte> buf = stackalloc byte[BinarySerializer.VolumeResponseSize];
-            var resp = new VolumeResponse { Volume = volume };
-            BinarySerializer.WriteVolumeResponse(buf, resp);
-            SendNotification(MessageTypeId.VolumeWriteBack, buf);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void PlayBackEnded(bool isPlaying)
         {
             SendNotification(MessageTypeId.PlayEnded, ReadOnlySpan<byte>.Empty);

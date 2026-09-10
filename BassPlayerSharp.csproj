@@ -2,6 +2,8 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <!-- 程序集名 = 进程名：与 External/AudioPlayer 发布产物同名（AudioPlayer.exe），可与主程序的 Player 进程互换 -->
+    <AssemblyName>AudioPlayer</AssemblyName>
     <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
