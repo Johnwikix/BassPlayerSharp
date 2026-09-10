@@ -5,3 +5,6 @@
 /obj
 /bin
 /Properties/*
+
+# Visual Studio 内部缓存（被 VS 锁定，无法读取）
+.vs/
